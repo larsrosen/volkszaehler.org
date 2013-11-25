@@ -6,7 +6,7 @@
  * @author Andreas Götz <cpuidle@gmx.de>
  */
 
-require_once('DataContext.php');
+namespace Tests;
 
 class DataCounterTest extends DataContext
 {
@@ -170,7 +170,7 @@ class DataCounterTest extends DataContext
 		$this->assertTuple($this->getTuple($this->ts1, $this->ts2, $this->value1, $this->value2), $this->json->data->min, "<min> tuple mismatch");
 		$this->assertTuple($this->getTuple($this->ts2, $this->ts3, $this->value2, $this->value3), $this->json->data->max, "<max> tuple mismatch");
 	}
-	
+
 	/**
 	 * @todo getting interval start timestamp seems odd as the value is discarded?
 	 *
