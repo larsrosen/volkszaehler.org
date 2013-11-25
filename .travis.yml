@@ -5,6 +5,7 @@ branches:
     only: 
        - master-travis
        - travis
+       - dev-travis
 
 php:
     - "5.5"
@@ -25,14 +26,10 @@ notifications:
 # irc: "chat.freenode.net#volkszaehler.org"
 
 before_install:
-#    - composer self-update
+    - composer self-update
 
 install:
-#    - composer install
-    - mkdir doctrine
-    - wget -O - http://www.doctrine-project.org/downloads/DoctrineORM-2.2.0-full.tar.gz | tar xz -C doctrine
-    - mkdir lib/vendor/Doctrine
-    - cp -r doctrine/Doctrine*/Doctrine/* lib/vendor/Doctrine/
+    - composer install
 
 before_script:
     - cp etc/volkszaehler.conf.template.php etc/volkszaehler.conf.php
@@ -68,9 +65,6 @@ before_script:
     - sh -c "if [ '$DB' = 'pgsql' ]; then cat misc/sql/schema.sql | psql -U postgres $DATABASE; fi;"
     - sh -c "if [ '$DB' = 'sqlite' ]; then cat misc/sql/schema.sql | sqlite3 sqlite.db3; fi;"
     - sh -c "if [ '$DB' = 'sqlite' ]; then sqlite3 sqlite.db3 .dump; fi;"
-
-#    - sed -i "s/\?>/\$config['aggregation'] = true;\n?>/" etc/volkszaehler.conf.php
-#    - php misc/tools/aggregate.php -m create
 
 script: 
     - cd test
