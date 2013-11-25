@@ -28,10 +28,7 @@ use Volkszaehler\Util;
 
 define('VZ_DIR', realpath(__DIR__ . '/../..'));
 
-require VZ_DIR . '/vendor/autoload.php';
-
-// load configuration
-Util\Configuration::load(VZ_DIR . '/etc/volkszaehler.conf');
+require VZ_DIR . '/lib/bootstrap.php';
 
 $em = Volkszaehler\Router::createEntityManager(TRUE); // get admin credentials
 
