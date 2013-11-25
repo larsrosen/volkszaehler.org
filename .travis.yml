@@ -5,6 +5,7 @@ branches:
     only: 
        - master-travis
        - travis
+       - dev-travis
 
 php:
     - "5.5"
@@ -25,14 +26,10 @@ notifications:
 # irc: "chat.freenode.net#volkszaehler.org"
 
 before_install:
-#    - composer self-update
+    - composer self-update
 
 install:
-#    - composer install
-    - mkdir doctrine
-    - wget -O - http://www.doctrine-project.org/downloads/DoctrineORM-2.2.0-full.tar.gz | tar xz -C doctrine
-    - mkdir lib/vendor/Doctrine
-    - cp -r doctrine/Doctrine*/Doctrine/* lib/vendor/Doctrine/
+    - composer install
 
 before_script:
     - cp etc/volkszaehler.conf.template.php etc/volkszaehler.conf.php
