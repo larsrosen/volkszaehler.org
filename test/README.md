@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/andig/volkszaehler.org.png?branch=master-travis)](https://travis-ci.org/andig/volkszaehler.org)
+[![Build Status](https://travis-ci.org/andig/volkszaehler.org.png?branch=travis-aggregate)](https://travis-ci.org/andig/volkszaehler.org)
 
 # Unit tests
 
