@@ -46,6 +46,10 @@ class AggregationTest extends DataContext
 		);
 	}
 
+	function testConfiguration() {
+		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set `config[aggregation] = true`');
+	}
+
 	function testClearAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
 		$agg->clear();
@@ -61,24 +65,24 @@ class AggregationTest extends DataContext
 		$agg = new Util\Aggregation(self::$conn);
 
 		// 0:00 today current timezone - must not be aggregated
-		$this->addDatapoint(strtotime('today 0:00') * 1000, 50);
+		$this->addTuple(strtotime('today 0:00') * 1000, 50);
 		$agg->aggregate('delta', 'day', 2);
 
 		$rows = $this->countAggregationRows();
 		$this->assertEquals(0, $rows, 'current period wrongly appears in aggreate table');
 
 		// 0:00 last two days - must be aggregated
-		$this->addDatapoint(strtotime('1 days ago 0:00') * 1000, 100);
-		$this->addDatapoint(strtotime('1 days ago 12:00') * 1000, 100);
-		$this->addDatapoint(strtotime('2 days ago 0:00') * 1000, 100);
-		$this->addDatapoint(strtotime('2 days ago 12:00') * 1000, 100);
+		$this->addTuple(strtotime('1 days ago 0:00') * 1000, 100);
+		$this->addTuple(strtotime('1 days ago 12:00') * 1000, 100);
+		$this->addTuple(strtotime('2 days ago 0:00') * 1000, 100);
+		$this->addTuple(strtotime('2 days ago 12:00') * 1000, 100);
 		$agg->aggregate('delta', 'day', 2);
 
 		$rows = $this->countAggregationRows();
 		$this->assertEquals(2, $rows, 'last period missing from aggreate table');
 
 		// 0:00 three days ago - must not be aggregated
-		$this->addDatapoint(strtotime('3 days ago 0:00') * 1000, 50);
+		$this->addTuple(strtotime('3 days ago 0:00') * 1000, 50);
 		$agg->aggregate('delta', 'day', 2);
 
 		$rows = $this->countAggregationRows();
@@ -95,7 +99,7 @@ class AggregationTest extends DataContext
 		$uuid2 = self::createChannel('AggregationSecondChannel', 'power', 100);
 
 		// 0:00 last yesterday - must be aggregated
-		$this->addDatapoint(strtotime('1 days ago 0:00') * 1000, 100, $uuid2);
+		$this->addTuple(strtotime('1 days ago 0:00') * 1000, 100, $uuid2);
 		$agg->aggregate('delta', 'day', 2);
 
 		$rows = $this->countAggregationRows($uuid2);
@@ -103,10 +107,6 @@ class AggregationTest extends DataContext
 
 		// cleanup 2nd channel
 		self::deleteChannel($uuid2);
-	}
-
-	function testConfiguration() {
-		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set `config[aggregation] = true`');
 	}
 
 	/**
@@ -119,11 +119,11 @@ class AggregationTest extends DataContext
 		$agg->clear();
 
 		// unaggregated datapoints - 6 rows
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000);
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000);
 		$this->assertEquals(6, $this->json->data->rows);
 
 		// unaggregated datapoints grouped - 4 rows for comparison
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
 		$this->assertEquals(4, $this->json->data->rows);
 
 		// save baseline, then aggregate
@@ -131,7 +131,7 @@ class AggregationTest extends DataContext
 		$agg->aggregate('delta', 'day', 2);
 
 		// aggregated datapoints grouped - 4 rows for comparison
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
 		$this->assertEquals(4, $this->json->data->rows);
 
 		foreach($this->json->data->tuples as $tuple) {
@@ -145,19 +145,19 @@ class AggregationTest extends DataContext
 	 */
 	function testAggregateRetrievalFrom() {
 		// 1 data
-		$this->getDatapointsRaw(strtotime('today 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('today 0:00') * 1000, null, 'day');
 		$this->assertEquals(1, $this->json->data->rows);
 
 		// 1 agg + 1 data
-		$this->getDatapointsRaw(strtotime('1 days ago 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('1 days ago 0:00') * 1000, null, 'day');
 		$this->assertEquals(2, $this->json->data->rows);
 
 		//  1 agg + 1 agg + 1 data
-		$this->getDatapointsRaw(strtotime('2 days ago 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('2 days ago 0:00') * 1000, null, 'day');
 		$this->assertEquals(3, $this->json->data->rows);
 
 		// 1 data + 1 agg + 1 agg + 1 data
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
 		$this->assertEquals(4, $this->json->data->rows);
 	}
 
@@ -166,19 +166,19 @@ class AggregationTest extends DataContext
 	 */
 	function testAggregateRetrievalTo() {
 		// 1 data + 1 agg + 1 agg + 1 data
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, strtotime('today 18:00') * 1000, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, strtotime('today 18:00') * 1000, 'day');
 		$this->assertEquals(4, $this->json->data->rows);
 
 		// 1 data + 1 agg + 1 data(aggregated)
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, strtotime('1 days ago 6:00') * 1000, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, strtotime('1 days ago 6:00') * 1000, 'day');
 		$this->assertEquals(3, $this->json->data->rows);
 
 		// 1 data + 1 data(aggregated)
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, strtotime('2 days ago 6:00') * 1000, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, strtotime('2 days ago 6:00') * 1000, 'day');
 		$this->assertEquals(2, $this->json->data->rows);
 
 		// 1 data
-		$this->getDatapointsRaw(strtotime('3 days ago 0:00') * 1000, strtotime('3 days ago 18:00') * 1000, 'day');
+		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, strtotime('3 days ago 18:00') * 1000, 'day');
 		$this->assertEquals(1, $this->json->data->rows);
 	}
 
