@@ -121,7 +121,7 @@ class Aggregation {
 	 * @param  int    $period number of prior periods to aggregate in delta mode
 	 * @return int         	  number of affected rows
 	 */
-	public function aggregate($mode = 'full', $level = 'day', $period = null) {
+	public function aggregate($mode = 'full', $level = 'day', $period = null, $channel_id = null) {
 		// validate settings
 		if (!in_array($mode, array('full', 'delta'))) {
 			throw new \Exception('Unsupported aggregation mode ' . $mode);
@@ -137,7 +137,15 @@ class Aggregation {
 			   'SELECT channel_id, ? AS type, MAX(timestamp) AS timestamp, SUM(value) AS value, COUNT(timestamp) AS count ' .
 			   'FROM data ' .
 			   'WHERE timestamp < UNIX_TIMESTAMP(DATE_FORMAT(NOW(), ' . $format . ')) * 1000 ';
+
+		if ($channel_id) {
+			$sqlParameters[] = $channel_id;
+			$sql .=
+				'AND channel_id = ?';
+		}
+
 		if ($mode == 'delta') {
+			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
 			$sql .=
 			   'AND timestamp >= IFNULL((' .
 		   	   'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
@@ -145,7 +153,6 @@ class Aggregation {
 		   	   		'INTERVAL 1 ' . $level . ')) * 1000 ' .
 			   'FROM aggregate ' .
 			   'WHERE channel_id = data.channel_id AND type = ?), 0) ';
-			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
 		}
 		if ($period) {
 			$sql .=
