@@ -231,7 +231,7 @@ abstract class Interpreter {
 			return new \EmptyIterator();
 
 		// echo(Util\Debug::getParametrizedQuery($sql, isset($sqlParameters2) ? $sqlParameters2 : $sqlParameters)."\n");
-		// file_put_contents("debug.log", Util\Debug::getParametrizedQuery($sql, isset($sqlParameters2) ? $sqlParameters2 : $sqlParameters)."\n", FILE_APPEND);
+		// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, isset($sqlParameters2) ? $sqlParameters2 : $sqlParameters).";\n\n", FILE_APPEND);
 
 		// perform any optimization and run query
 		$stmt = $this->runSQL($sql, isset($sqlParameters2) ? $sqlParameters2 : $sqlParameters);
@@ -268,13 +268,14 @@ abstract class Interpreter {
 					   'FROM ('.
 					   '	SELECT timestamp, value, @row:=@row+1 AS row '.
 					   ' 	FROM data WHERE channel_id=?' . $sqlTimeFilter .
-					   'ORDER BY timestamp ) AS aggregate '.
+					   'ORDER BY timestamp) AS aggregate '.
 					   'GROUP BY row DIV ' . $packageSize .' '.
 					   'ORDER BY timestamp ASC';
 			}
 		}
 
-		$stmt = $this->conn->executeQuery($sql, $sqlParameters); // query for data
+		// query for data
+		$stmt = $this->conn->executeQuery($sql, $sqlParameters);
 
 		return($stmt);
 	}

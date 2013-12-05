@@ -19,8 +19,12 @@ class AggregationPerformanceTest extends DataContext
 	static $conn;
 	static $em;
 
-	const TEST_SIZE = 1000;		// 1 day
-	const TEST_SPACING = 60;	// 5 min
+	static $testSize;
+	static $nodata;
+
+	const TEST_DAYS = 365;		// count
+	const TEST_SPACING = 60;	// sec
+
 	const MSG_WIDTH = 20;
 
 	private $min;
@@ -37,8 +41,11 @@ class AggregationPerformanceTest extends DataContext
 			$dbConfig = array_merge($dbConfig, $dbConfig['admin']);
 		}
 		self::$conn = DBAL\DriverManager::getConnection($dbConfig);
-
 		self::$em = \Volkszaehler\Router::createEntityManager();
+
+		self::$uuid = '9213ffb0-5dbc-11e3-a6df-8b30fe80a9e6';
+
+		self::$testSize = round(self::TEST_DAYS * 24 * 3600 / self::TEST_SPACING);
 
 		if (!self::$uuid)
 			self::$uuid = self::createChannel('Aggregation', 'power', 100);
@@ -60,10 +67,10 @@ class AggregationPerformanceTest extends DataContext
 	 * Cleanup aggregation
 	 */
 	static function tearDownAfterClass() {
-		// if (self::$conn) {
-		// 	$agg = new Util\Aggregation(self::$conn);
-		// 	$agg->clear();
-		// }
+		if (self::$conn) {
+			$agg = new Util\Aggregation(self::$conn);
+			$agg->clear();
+		}
 		// parent::tearDownAfterClass();
 	}
 
@@ -80,7 +87,7 @@ class AggregationPerformanceTest extends DataContext
 		// self::$conn->executeQuery('FLUSH STATUS, TABLES WITH READ LOCK');
 	}
 
-	function formatMsg($msg) {
+	private function formatMsg($msg) {
 		$msg = "\n" . $msg . ' ';
 		while (strlen($msg) < self::MSG_WIDTH) {
 			$msg .= '.';
@@ -88,23 +95,30 @@ class AggregationPerformanceTest extends DataContext
 		return $msg  . ' ';
 	}
 
-	function msg($msg, $val = null) {
+	private function formatVal($val) {
+		if (is_float($val)) {
+			return(sprintf(($val >= 1000) ? "%.0f" : "%.2f", $val));
+		}
+		return $val;
+	}
+
+	private function msg($msg, $val = null) {
 		echo($this->formatMsg($msg));
 		echo($val . " ");
 	}
 
-	function perf($time, $msg = null) {
+	private function perf($time, $msg = null) {
 		if ($msg) {
 			echo($this->formatMsg($msg));
 		}
-		echo((self::TEST_SIZE / $time) . " recs/s ");
+		echo($this->formatVal(self::$testSize / $time) . " recs/s ");
 	}
 
-	function timer($time, $msg = null) {
+	private function timer($time, $msg = null) {
 		if ($msg) {
 			echo($this->formatMsg($msg));
 		}
-		echo(($time) . " s ");
+		echo($this->formatVal($time) . " s ");
 	}
 
 	function testConfiguration() {
@@ -121,24 +135,32 @@ class AggregationPerformanceTest extends DataContext
 
 	function testPrepareData() {
 		$channel = self::getChannelByUUID(self::$uuid);
-		self::$em->getConnection()->beginTransaction();
+		$channel_id = $channel->getId();
 
+		return;
+
+		$this->msg('TestSize', self::$testSize);
+
+		self::$em->getConnection()->beginTransaction();
 		$time = microtime(true);
-		for ($i=0; $i<self::TEST_SIZE; $i++) {
+		for ($i=0; $i<self::$testSize; $i++) {
 			$ts = $i * 1000 * self::TEST_SPACING;
 			$val = 10;
 
-			// $this->addTuple($ts, $val);
-			$channel->addData(new Model\Data($channel, $ts, $val));
+			self::$conn->executeQuery(
+				'INSERT DELAYED INTO data (channel_id, timestamp, value) VALUES(?, ?, ?)',
+				array($channel_id, $ts, $val));
 		}
-		self::$em->flush();
-		self::$em->getConnection()->commit();
 		$time = microtime(true) - $time;
+		self::$em->getConnection()->commit();
 
 		$this->timer($time, "AddTime");
 	}
 
 	function testGetAllData() {
+		$this->min = 0;
+		$this->max = self::$testSize * self::TEST_SPACING * 1000;
+
 		$this->clearCache();
 		$time = microtime(true);
 		$this->getTuples($this->min, $this->max);
@@ -148,6 +170,7 @@ class AggregationPerformanceTest extends DataContext
 
 	function testGetAllDataGrouped() {
 		file_put_contents("1.txt", "reset query cache;\n\n");
+		file_put_contents("1.txt", self::$uuid."\n\n", FILE_APPEND);
 
 		$this->clearCache();
 		$time = microtime(true);
@@ -157,9 +180,6 @@ class AggregationPerformanceTest extends DataContext
 		$this->perf($time, "GetGroupPerf");
 	}
 
-	/**
-	 * @depends testClearAggregation
-	 */
 	function testAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
 		$agg->clear();
@@ -171,7 +191,7 @@ class AggregationPerformanceTest extends DataContext
 
 		$rows = $this->countAggregationRows();
 		$this->assertGreaterThan(0, $rows);
-		echo($this->msg("AggRatio", "1:" . round(self::TEST_SIZE / $rows)));
+		echo($this->msg("AggRatio", "1:" . round(self::$testSize / $rows)));
 
 		$this->clearCache();
 		$time = microtime(true);
