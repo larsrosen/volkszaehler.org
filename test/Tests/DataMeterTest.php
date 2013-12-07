@@ -16,13 +16,13 @@ class DataMeterTest extends DataContext
 	// data properties
 	protected $ts1 =  3600000;
 	protected $ts2 = 10800000; // +2hr
-	protected $ts3 = 18000000; // +3hr
-	protected $ts4 = 19800000; // +3.5
+	protected $ts3 = 14400000; // +3hr
+	protected $ts4 = 16200000; // +3.5
 
 	protected $value1 = 1000;
-	protected $value2 = 1000;
-	protected $value3 = 2000;
-	protected $value4 = 2000;
+	protected $value2 = 1000;  // 10kWh @ resolution 100
+	protected $value3 = 2000;  // 20kWh @ resolution 100
+	protected $value4 = 2000;  // 20kWh @ resolution 100
 
 	/**
 	 * Create channel
@@ -62,9 +62,9 @@ class DataMeterTest extends DataContext
 	 * @depends testAddTuple
 	 */
 	function testGetTuple() {
-		$this->getTuples($this->ts1, $this->ts2);
+		$this->getTuples($this->ts1-1, $this->ts2);
 
-		// from/to expected to match single datapoint
+		// from/to expected to match actual data instead of request range
 		$this->assertFromTo($this->ts1, $this->ts1);
 		$this->assertHeader(0, 0, 1);
 
@@ -90,6 +90,31 @@ class DataMeterTest extends DataContext
 		$this->assertCount(1, $this->json->data->tuples);
 
 		$this->assertTuple(0, $this->makeTuple($this->ts1, $this->ts2, $this->value2));
+	}
+
+	/**
+	 * test if from=0 gets all tuples
+	 *
+	 * @depends testGetMultiple
+	 */
+	function testGetAllTuples() {
+		$this->getTuples(0);
+
+		$rows = 2;
+		$this->assertEquals($rows, $this->json->data->rows);
+		$this->assertCount($rows - 1, $this->json->data->tuples);
+	}
+
+	/**
+	 * test if from=now gets exactly the last tuple
+	 *
+	 * @depends testGetMultiple
+	 */
+	function testGetLastTuple() {
+		$tuples = $this->getTuplesRaw($this->ts1, $this->ts2);
+		$tuplesNow = $this->getTuples("now");
+
+		$this->assertEquals($tuples, $tuplesNow);
 	}
 
 	/**
@@ -199,18 +224,6 @@ class DataMeterTest extends DataContext
 	}
 
 	/**
-	 * test if from=now gets exactly the last tuple
-	 *
-	 * @depends testGetMultiple
-	 */
-	function testGetLastTuple() {
-		$tuples = $this->getTuplesRaw($this->ts2, $this->ts3);
-		$tuplesNow = $this->getTuples("now");
-
-		$this->assertEquals($tuples, $tuplesNow);
-	}
-
-	/**
 	 * @depends testMultipleGroupByHour
 	 */
 	function testMultipleGroupByHour2() {
@@ -230,6 +243,42 @@ class DataMeterTest extends DataContext
 
 		$this->assertTuple(0, $this->makeTuple($this->ts1, $this->ts2, $this->value2));
 		$this->assertTuple(1, $this->makeTuple($this->ts2, $this->ts4, $this->value3 + $this->value4));
+	}
+
+	/**
+	 * @depends testGetMultiple
+	 */
+	function testSetTotal() {
+		$this->getTuples(0);
+		echo("\nold consumption: {$this->json->data->consumption}\n");
+
+		// new desired total consumption
+		$total = 75; // kWh
+		$delta = $total - $this->json->data->consumption / 1000; // kWh
+
+		$rowCount = $this->json->data->rows;
+		if ($rowCount) {
+			// we have starting timestamp + at least one valid tuple- get tuple range
+			$ts1 = $this->json->data->from;
+			$ts2 = ($rowCount > 2) ? $this->json->data->tuples[1][0] : $this->json->data->to;
+
+			// add consumption of first tuple
+			$delta += $this->json->data->tuples[0][1] * ($ts2 - $ts1) / 3.6e9; // kWh
+
+			// update tuple to match desired total
+			$url = self::$context . '/' . self::$uuid . '.json?operation=edit&ts=' . $ts2 . '&value=' . ($delta * self::$resolution); // kWh * res
+			$this->getJson($url);
+
+			// verify total consumption
+			$this->getTuples(0, null, '', 1);
+			echo("new consumption: {$this->json->data->consumption}\n");
+
+			$this->assertFromTo($ts1, $this->json->data->to);
+			$this->assertEquals($total * 1000, $this->json->data->consumption); // compare Wh
+		}
+		else {
+			echo("Not enough tuples\n");
+		}
 	}
 }
 

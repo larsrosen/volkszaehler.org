@@ -62,9 +62,9 @@ class DataCounterTest extends DataContext
 	 * @depends testAddTuple
 	 */
 	function testGetTuple() {
-		$this->getTuples($this->ts1, $this->ts2);
+		$this->getTuples($this->ts1-1, $this->ts2);
 
-		// from/to expected to match single datapoint
+		// from/to expected to match actual data instead of request range
 		$this->assertFromTo($this->ts1, $this->ts1);
 		$this->assertHeader(0, 0, 1);
 
