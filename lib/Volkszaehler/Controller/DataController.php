@@ -104,7 +104,7 @@ class DataController extends Controller {
 				$this->em->getConnection()->commit();
 			}
 			catch (Exception $e) {
-				$this->em->getConnection()->rollback(); 
+				$this->em->getConnection()->rollback();
 				throw($e);
 			}
 		} catch (Util\JSONException $e) { /* fallback to old method */
@@ -114,14 +114,29 @@ class DataController extends Controller {
 			if (is_null($timestamp)) {
 				$timestamp = (double) round(microtime(TRUE) * 1000);
 			}
-			
+
 			if (is_null($value)) {
 				$value = 1;
 			}
-		
+
 			$channel->addData(new Model\Data($channel, $timestamp, $value));
 			$this->em->flush();
 		}
+	}
+
+	public function edit($channel) {
+		$timestamp = $this->view->request->getParameter('ts');
+		$value = $this->view->request->getParameter('value');
+
+		if (is_null($timestamp)) {
+			throw new \Exception('Invalid request: missing timestamp');
+		}
+
+		if (is_null($value)) {
+			throw new \Exception('Invalid request: missing value');
+		}
+
+		$channel->updateData($this->em, $timestamp, $value);
 	}
 
 	/**

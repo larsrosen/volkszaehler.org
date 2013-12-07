@@ -67,6 +67,16 @@ class Channel extends Entity {
 		$sql = 'DELETE FROM data WHERE channel_id = ?';
 		return $em->getConnection()->executeQuery($sql, array($this->id));
 	}
+
+	/**
+	 * Update existing database tuple
+	 *
+	 * @todo check impact on materialized view
+	 */
+	public function updateData(\Doctrine\ORM\EntityManager $em, $timestamp, $value) {
+		$sql = 'UPDATE data SET value = ? WHERE channel_id = ? AND timestamp = ?';
+		return $em->getConnection()->executeQuery($sql, array($value, $this->id, $timestamp));
+	}
 }
 
 ?>
