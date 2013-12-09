@@ -87,16 +87,10 @@ abstract class Interpreter {
 
 		// check if aggregation table can be used
 		$this->useAggregation = isset($this->groupBy) && Util\Configuration::read('aggregation') &&
-			Util\Aggregation::isValidAggregationLevel($this->groupBy) && ($this->client == 'agg') && (
+			Util\Aggregation::isValidAggregationLevel($this->groupBy) /*&& ($this->client == 'agg') */&& (
 				Util\Aggregation::getAggregationLevelTypeValue($this->groupBy) >=
 				Util\Aggregation::getAggregationLevelTypeValue(self::AGGREGATION_LEVEL)
 			);
-// $typeGroup = Util\Aggregation::getAggregationLevelTypeValue($this->groupBy);
-// $typeDay = Util\Aggregation::getAggregationLevelTypeValue(self::AGGREGATION_LEVEL);
-// file_put_contents("1.txt", "typeGroup: $typeGroup / typeDay: $typeDay\n\n", FILE_APPEND);
-
-// file_put_contents("1.txt", "");
-// file_put_contents("1.txt", "useAgg ".(($this->useAggregation) ? 'true' : 'false').";\n\n", FILE_APPEND);
 	}
 
 	/**
@@ -197,77 +191,23 @@ abstract class Interpreter {
 				   'WHERE channel_id = ?' . $sqlTimeFilter . ' ' .
 				   'GROUP BY ' . $sqlGroupFields . ' ' .
 				   'ORDER BY timestamp ASC';
-
-// $this->conn->exec("FLUSH TABLES");
-// $this->conn->exec("RESET QUERY CACHE");
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters).";\n\n", FILE_APPEND);
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, $sqlParameters).";\n\n", FILE_APPEND);
-
-			// Optimize grouped queries by applying aggregation table
-			// @TODO fix sqlRowCount statement (if necessary)
-			if ($this->useAggregation) {
-				// numeric value of desired aggregation mode
-				// @TODO add optimizer to choose best aggregation mode (for now, always 'day')
-				$aggregationLevel = self::AGGREGATION_LEVEL;
-				$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
-
-				// calculate timestamp boundaries for aggregation table usage
-				//     table:   --data-- -----aggregate----- -data-
-				// timestamp:   from ... agg_from ... agg_to ... to
-				if ($this->getAggregationBoundary($aggregationLevel, $agg_from, $agg_to)) {
-					// NOTE: the UNION'ed tables are not ordered as MySQL doesn't guarantee result ordering
-					$sqlParameters = array($this->channel->getId());
-					// 	   table:   --DATA-- -----aggregate----- -data-
-					$sqlTimeFilterPre = self::buildDateTimeFilterSQL($this->from, $agg_from, $sqlParameters, true, '');
-					// 	   table:   --data-- -----aggregate----- -DATA-
-					$sqlTimeFilterPost = self::buildDateTimeFilterSQL($agg_to, $this->to, $sqlParameters, false, '');
-					$sql = 'SELECT timestamp, value, 1 AS count ' .
-						   'FROM data ' .
-						   'WHERE channel_id = ? ' .
-						   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-					// 	   table:   --data-- -----AGGREGATE----- -data-
-					array_push($sqlParameters, $this->channel->getId(), $type);
-					$sqlTimeFilter = self::buildDateTimeFilterSQL($agg_from, $agg_to, $sqlParameters, true);
-					$sql.= 'UNION SELECT timestamp, value, count ' .
-						   'FROM aggregate ' .
-						   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-
-					// add common aggregation and sorting on UNIONed table
-					$sql = 'SELECT MAX(timestamp) AS timestamp, SUM(value) AS value, SUM(count) AS count ' .
-						   'FROM (' . $sql . ') AS agg ' .
-						   'GROUP BY ' . $sqlGroupFields . ' ORDER BY timestamp ASC';
-
-					// fix row count
-					$sqlRowCount = 'SELECT DISTINCT ' . $sqlGroupFields . ' ' .
-								   'FROM data WHERE channel_id = ? ' .
-								   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-					$sqlRowCount.= 'UNION SELECT DISTINCT ' . $sqlGroupFields . ' ' .
-								   'FROM aggregate ' .
-								   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-					$sqlRowCount = 'SELECT COUNT(1) ' .
-								   'FROM (' . $sqlRowCount . ') AS agg';
-				}
-			}
 		}
 		else {
 			$sqlRowCount = 'SELECT COUNT(*) FROM data WHERE channel_id = ?' . $sqlTimeFilter;
 			$sql = 'SELECT timestamp, value, 1 AS count FROM data WHERE channel_id=?' . $sqlTimeFilter . ' ORDER BY timestamp ASC';
 		}
 
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters).";\n\n", FILE_APPEND);
-// $time = microtime(true);
-		$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParameters, 0);
-// $time = microtime(true) - $time;
-// file_put_contents("1.txt", $time.";\n\n", FILE_APPEND);
+		// get rowCount and optimize sql, replaces:
+		// $this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParameters, 0);
+		$this->optimizeSQL($sql, $sqlRowCount, $sqlParameters);
 		if ($this->rowCount <= 0)
 			return new \EmptyIterator();
 
 		// echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
 		// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, $sqlParameters).";\n\n", FILE_APPEND);
-
-		// perform any optimization and run query
 // $time = microtime(true);
-		$stmt = $this->runSQL($sql, $sqlParameters);
+		// run query
+		$stmt = $this->conn->executeQuery($sql, $sqlParameters);
 // $time = microtime(true) - $time;
 // file_put_contents("1.txt", $time.";\n\n", FILE_APPEND);
 
@@ -275,17 +215,90 @@ abstract class Interpreter {
 	}
 
 	/**
-	 * Execute SQL after performing potential optimizations
-	 * Helper function to avoid duplicate code in derived classes
+	 * Count result rows and optimize query
 	 *
-	 * Reduces number of tuples returned from DB if possible,
-	 * basically does what DataIterator->next does when bundling tuples into packages
+	 * Grouped queries:
+	 * 		use aggregation table
 	 *
-	 * @author Andreas Götz <cpuidle@gmx.de>
-	 * @param string $sql
-	 * @param string $sqlParameters
+	 * Normal queries:
+	 * 		Reduces number of tuples returned from DB if possible,
+	 *   	basically does what DataIterator->next does when bundling
+	 *   	tuples into packages
+	 *
+	 * @param  string $sql           data selection sql
+	 * @param  string $sqlRowCount   row count sql
+	 * @param  array $sqlParameters  sql parameters
+	 * @return mixed                 sql statement
 	 */
-	protected function runSQL($sql, $sqlParameters) {
+	protected function optimizeSQL(&$sql, $sqlRowCount, &$sqlParameters) {
+// file_put_contents("1.txt", "useAgg ".(($this->useAggregation) ? 'true' : 'false').";\n\n");
+
+// $this->conn->exec("FLUSH TABLES");
+// $this->conn->exec("RESET QUERY CACHE");
+// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters).";\n\n", FILE_APPEND);
+// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, $sqlParameters).";\n\n", FILE_APPEND);
+
+		// Optimize grouped queries by applying aggregation table
+		if ($this->groupBy && $this->useAggregation) {
+			$sqlGroupFields = self::buildGroupBySQL($this->groupBy);
+			if (!$sqlGroupFields)
+				throw new \Exception('Unknown group');
+
+			// numeric value of desired aggregation mode
+			// @TODO add optimizer to choose best aggregation mode (for now, always 'day')
+			$aggregationLevel = self::AGGREGATION_LEVEL;
+			$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
+
+			// calculate timestamp boundaries for aggregation table usage
+			//     table:   --data-- -----aggregate----- -data-
+			// timestamp:   from ... agg_from ... agg_to ... to
+			if ($this->getAggregationBoundary($aggregationLevel, $agg_from, $agg_to)) {
+				// NOTE: the UNION'ed tables are not ordered as MySQL doesn't guarantee result ordering
+				$sqlParameters = array($this->channel->getId());
+				// 	   table:   --DATA-- -----aggregate----- -data-
+				$sqlTimeFilterPre = self::buildDateTimeFilterSQL($this->from, $agg_from, $sqlParameters, true, '');
+				// 	   table:   --data-- -----aggregate----- -DATA-
+				$sqlTimeFilterPost = self::buildDateTimeFilterSQL($agg_to, $this->to, $sqlParameters, false, '');
+
+				// build data query
+				// 	   table:   --DATA-- -----aggregate----- -DATA-
+				$sql = 'SELECT timestamp, value, 1 AS count ' .
+					   'FROM data ' .
+					   'WHERE channel_id = ? ' .
+					   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
+
+				// 	   table:   --data-- -----AGGREGATE----- -data-
+				array_push($sqlParameters, $this->channel->getId(), $type);
+				$sqlTimeFilter = self::buildDateTimeFilterSQL($agg_from, $agg_to, $sqlParameters, true);
+				$sql.= 'UNION SELECT timestamp, value, count ' .
+					   'FROM aggregate ' .
+					   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
+
+				// add common aggregation and sorting on UNIONed table
+				$sql = 'SELECT MAX(timestamp) AS timestamp, SUM(value) AS value, SUM(count) AS count ' .
+					   'FROM (' . $sql . ') AS agg ' .
+					   'GROUP BY ' . $sqlGroupFields . ' ORDER BY timestamp ASC';
+
+				// build row count query
+				$sqlRowCount = 'SELECT DISTINCT ' . $sqlGroupFields . ' ' .
+							   'FROM data WHERE channel_id = ? ' .
+							   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
+				$sqlRowCount.= 'UNION SELECT DISTINCT ' . $sqlGroupFields . ' ' .
+							   'FROM aggregate ' .
+							   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
+				$sqlRowCount = 'SELECT COUNT(1) ' .
+							   'FROM (' . $sqlRowCount . ') AS agg';
+			}
+		}
+
+// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters).";\n\n", FILE_APPEND);
+// $time = microtime(true);
+		// echo(Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters)."\n");
+		// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, $sqlParameters).";\n\n", FILE_APPEND);
+		$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParameters, 0);
+// $time = microtime(true) - $time;
+// file_put_contents("1.txt", $time.";\n\n", FILE_APPEND);
+
 		// potential to reduce result set - can't do this for already grouped SQL
 		if (!$this->groupBy && $this->tupleCount && ($this->rowCount > $this->tupleCount)) {
 			$packageSize = floor($this->rowCount / $this->tupleCount);
@@ -308,11 +321,6 @@ abstract class Interpreter {
 					   'ORDER BY timestamp ASC';
 			}
 		}
-
-		// query for data
-		$stmt = $this->conn->executeQuery($sql, $sqlParameters);
-
-		return($stmt);
 	}
 
 	/**

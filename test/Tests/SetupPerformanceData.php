@@ -33,11 +33,6 @@ class SetupPerformanceData extends DataContext
 	static function setupBeforeClass() {
 		parent::setupBeforeClass();
 
-		// $dbConfig = Util\Configuration::read('db');
-		// if (isset($dbConfig['admin'])) {
-		// 	$dbConfig = array_merge($dbConfig, $dbConfig['admin']);
-		// }
-		// self::$conn = DBAL\DriverManager::getConnection($dbConfig);
 		self::$em = \Volkszaehler\Router::createEntityManager();
 		self::$conn = self::$em->getConnection();
 
@@ -150,7 +145,12 @@ class SetupPerformanceData extends DataContext
 	// 	self::$conn->executeQuery('UPDATE entities SET id=? WHERE id=?', array($target_id, $channel_id));
 	// 	self::$conn->executeQuery('UPDATE properties SET entity_id=? WHERE entity_id=?', array($target_id, $channel_id));
 	// 	self::$conn->executeQuery('UPDATE aggregate SET channel_id=? WHERE channel_id=?', array($target_id, $channel_id));
-
+/*
+		UPDATE data SET channel_id=? WHERE channel_id=?
+		UPDATE entities SET id=? WHERE id=?
+		UPDATE properties SET entity_id=? WHERE entity_id=?
+		UPDATE aggregate SET channel_id=? WHERE channel_id=?
+*/
 	// 	self::$em->getConnection()->commit();
 	// }
 }
