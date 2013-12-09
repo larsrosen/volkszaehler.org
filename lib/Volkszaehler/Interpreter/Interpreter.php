@@ -112,47 +112,6 @@ abstract class Interpreter {
 	}
 
 	/**
-	 * Calculate valid timestamp boundaries for aggregation table usage in grouped queries
-	 *
-	 *     table:   --data-- -----aggregate----- -data-
-	 * timestamp:   from ... agg_from ... agg_to ... to
-	 *
-	 * @param string $type aggregation level (e.g. 'day')
-	 * @return boolean true: aggregate table contains data, agg_from/agg_to contains valid range
-	 * @todo fix date format and interval calculation for aggregation modes different from 'day'
-	 * @author Andreas Goetz <cpuidle@gmx.de>
-	 */
-	private function getAggregationBoundary($level, &$agg_from, &$agg_to) {
-		$type = Util\Aggregation::getAggregationLevelTypeValue($level);
-		$dateFormat = Util\Aggregation::getAggregationDateFormat($level); // day = "%Y-%m-%d"
-
-		// agg_from becomes beginning of first period with aggregate data
-		$sqlParameters = array($this->channel->getId(), $type, $this->from);
-		$sql = 'SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(MIN(timestamp) / 1000, ' . $dateFormat . ')) * 1000 ' .
-		 	   'FROM aggregate WHERE channel_id=? AND type=? AND timestamp>=?';
-		$agg_from = $this->conn->fetchColumn($sql, $sqlParameters, 0);
-
-		// aggregate table contains relevant data?
-		if (isset($agg_from)) {
-			// agg_to becomes beginning of first period without aggregate data
-			$sqlParameters = array($this->channel->getId(), $type);
-			$sql = 'SELECT UNIX_TIMESTAMP(' .
-				   'DATE_ADD(' .
-						'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $dateFormat . '), ' .
-						'INTERVAL 1 ' . $level .
-				   ')) * 1000 ' .
-				   'FROM aggregate WHERE channel_id=? AND type=?';
-			if (isset($this->to)) {
-				$sqlParameters[] = $this->to;
-				$sql .= ' AND timestamp<?';
-			}
-			$agg_to = $this->conn->fetchColumn($sql, $sqlParameters, 0);
-		}
-
-		return (isset($agg_from) && isset($agg_to));
-	}
-
-	/**
 	 * Get raw data
 	 *
 	 * @param string|integer $groupBy
@@ -212,6 +171,46 @@ abstract class Interpreter {
 // file_put_contents("1.txt", $time.";\n\n", FILE_APPEND);
 
 		return new DataIterator($stmt, $this->rowCount, $this->tupleCount);
+	}
+
+	/**
+	 * Calculate valid timestamp boundaries for aggregation table usage in grouped queries
+	 *
+	 *     table:   --data-- -----aggregate----- -data-
+	 * timestamp:   from ... agg_from ... agg_to ... to
+	 *
+	 * @param string $type aggregation level (e.g. 'day')
+	 * @return boolean true: aggregate table contains data, agg_from/agg_to contains valid range
+	 * @author Andreas Goetz <cpuidle@gmx.de>
+	 */
+	private function getAggregationBoundary($level, &$agg_from, &$agg_to) {
+		$type = Util\Aggregation::getAggregationLevelTypeValue($level);
+		$dateFormat = Util\Aggregation::getAggregationDateFormat($level); // day = "%Y-%m-%d"
+
+		// agg_from becomes beginning of first period with aggregate data
+		$sqlParameters = array($this->channel->getId(), $type, $this->from);
+		$sql = 'SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(MIN(timestamp) / 1000, ' . $dateFormat . ')) * 1000 ' .
+		 	   'FROM aggregate WHERE channel_id=? AND type=? AND timestamp>=?';
+		$agg_from = $this->conn->fetchColumn($sql, $sqlParameters, 0);
+
+		// aggregate table contains relevant data?
+		if (isset($agg_from)) {
+			// agg_to becomes beginning of first period without aggregate data
+			$sqlParameters = array($this->channel->getId(), $type);
+			$sql = 'SELECT UNIX_TIMESTAMP(' .
+				   'DATE_ADD(' .
+						'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $dateFormat . '), ' .
+						'INTERVAL 1 ' . $level .
+				   ')) * 1000 ' .
+				   'FROM aggregate WHERE channel_id=? AND type=?';
+			if (isset($this->to)) {
+				$sqlParameters[] = $this->to;
+				$sql .= ' AND timestamp<?';
+			}
+			$agg_to = $this->conn->fetchColumn($sql, $sqlParameters, 0);
+		}
+
+		return (isset($agg_from) && isset($agg_to));
 	}
 
 	/**
