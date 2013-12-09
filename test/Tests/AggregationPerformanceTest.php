@@ -20,15 +20,13 @@ class AggregationPerformanceTest extends DataContext
 	static $em;
 
 	static $testSize;
-	static $nodata;
+	static $uuid = '00000000-0000-0000-0000-000000000000';
+	static $to; // = '1.2.2000'; // limit data set for low performance clients
 
-	const TEST_DAYS = 365;		// count
-	const TEST_SPACING = 60;	// sec
+	const TEST_DAYS = 365;		 // count
+	const TEST_SPACING = 60;	 // sec
 
 	const MSG_WIDTH = 20;
-
-	private $min;
-	private $max;
 
 	/**
 	 * Create DB connection and setup channel
@@ -43,12 +41,22 @@ class AggregationPerformanceTest extends DataContext
 		self::$conn = DBAL\DriverManager::getConnection($dbConfig);
 		self::$em = \Volkszaehler\Router::createEntityManager();
 
-		self::$uuid = '9213ffb0-5dbc-11e3-a6df-8b30fe80a9e6';
-
 		self::$testSize = round(self::TEST_DAYS * 24 * 3600 / self::TEST_SPACING);
 
-		if (!self::$uuid)
-			self::$uuid = self::createChannel('Aggregation', 'power', 100);
+		if (!self::$uuid) {
+			// self::$uuid = self::createChannel('Aggregation', 'power', 100);
+			echo("Failure: need UUID before test.\nRun `phpunit Tests\SetupPerformanceData` to generate.");
+			die;
+		}
+
+		if (isset(self::$to)) {
+			if (!is_numeric(self::$to)) {
+				self::$to = strtotime(self::$to) * 1000;
+			}
+		}
+		else {
+			self::$to = null;
+		}
 	}
 
 	static function getChannelByUUID($uuid) {
@@ -67,11 +75,7 @@ class AggregationPerformanceTest extends DataContext
 	 * Cleanup aggregation
 	 */
 	static function tearDownAfterClass() {
-		if (self::$conn) {
-			$agg = new Util\Aggregation(self::$conn);
-			$agg->clear();
-		}
-		// parent::tearDownAfterClass();
+		// keep channel
 	}
 
 	protected function countAggregationRows($uuid = null) {
@@ -83,8 +87,8 @@ class AggregationPerformanceTest extends DataContext
 	}
 
 	protected function clearCache() {
-		self::$conn->executeQuery('FLUSH QUERY CACHE');
-		// self::$conn->executeQuery('FLUSH STATUS, TABLES WITH READ LOCK');
+		self::$conn->executeQuery('FLUSH TABLES');
+		self::$conn->executeQuery('RESET QUERY CACHE');
 	}
 
 	private function formatMsg($msg) {
@@ -125,80 +129,57 @@ class AggregationPerformanceTest extends DataContext
 		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set `config[aggregation] = true`');
 	}
 
-	function testClearAggregation() {
-		$agg = new Util\Aggregation(self::$conn);
-		$agg->clear();
-
-		$rows = self::$conn->fetchColumn('SELECT COUNT(id) FROM aggregate');
-		$this->assertEquals(0, $rows, 'aggregate table cannot be cleared');
-	}
-
-	function testPrepareData() {
-		$channel = self::getChannelByUUID(self::$uuid);
-		$channel_id = $channel->getId();
-
-		return;
-
-		$this->msg('TestSize', self::$testSize);
-
-		self::$em->getConnection()->beginTransaction();
-		$time = microtime(true);
-		for ($i=0; $i<self::$testSize; $i++) {
-			$ts = $i * 1000 * self::TEST_SPACING;
-			$val = 10;
-
-			self::$conn->executeQuery(
-				'INSERT DELAYED INTO data (channel_id, timestamp, value) VALUES(?, ?, ?)',
-				array($channel_id, $ts, $val));
-		}
-		$time = microtime(true) - $time;
-		self::$em->getConnection()->commit();
-
-		$this->timer($time, "AddTime");
-	}
-
-	function testGetAllData() {
-		$this->min = 0;
-		$this->max = self::$testSize * self::TEST_SPACING * 1000;
-
-		$this->clearCache();
-		$time = microtime(true);
-		$this->getTuples($this->min, $this->max);
-
-		$this->perf($time, "GetPerf");
-	}
-
 	function testGetAllDataGrouped() {
-		file_put_contents("1.txt", "reset query cache;\n\n");
-		file_put_contents("1.txt", self::$uuid."\n\n", FILE_APPEND);
-
 		$this->clearCache();
 		$time = microtime(true);
-		$this->getTuples($this->min, $this->max, "day");
+		$this->getTuples(1, self::$to, "day");
 		$time = microtime(true) - $time;
 
 		$this->perf($time, "GetGroupPerf");
 	}
 
 	function testAggregation() {
-		$agg = new Util\Aggregation(self::$conn);
-		$agg->clear();
+		$channel_id = self::getChannelByUUID(self::$uuid)->getId();
 
-		$time = microtime(true);
-		$agg->aggregate('full', 'day', null, self::getChannelByUUID(self::$uuid)->getId());
-		$time = microtime(true) - $time;
-		$this->timer($time, "AggTime");
-
-		$rows = $this->countAggregationRows();
+		$rows = $this->countAggregationRows(self::$uuid);
 		$this->assertGreaterThan(0, $rows);
 		echo($this->msg("AggRatio", "1:" . round(self::$testSize / $rows)));
+	}
 
+	function testGetAllDataGroupedAggregated() {
 		$this->clearCache();
 		$time = microtime(true);
-		$this->getTuples($this->min, $this->max, "day");
+		// $this->getTuples(1, null, 'day');
+		$url = self::$context . '/' . static::$uuid . '.json?';
+		$this->getTuplesByUrl($url, 1, self::$to, 'day', null, 'client=agg');
 		$time = microtime(true) - $time;
 
 		$this->perf($time, "GetAggPerf");
+	}
+
+	function testGetTotal() {
+		$this->clearCache();
+		$time = microtime(true);
+		$this->getTuples(1, self::$to, null, 1);
+		$time = microtime(true) - $time;
+
+		$this->perf($time, "GetTotalPerf");
+
+		$this->clearCache();
+		$time = microtime(true);
+		$this->getTuples(1, self::$to, 'day', 1);
+		$time = microtime(true) - $time;
+
+		$this->perf($time, "GetTotalGroup");
+
+		$this->clearCache();
+		$time = microtime(true);
+		// $this->getTuples(1, null, 'day');
+		$url = self::$context . '/' . static::$uuid . '.json?';
+		$this->getTuplesByUrl($url, 1, self::$to, 'day', 1, 'client=agg');
+		$time = microtime(true) - $time;
+
+		$this->perf($time, "GetTotalAgg");
 	}
 }
 

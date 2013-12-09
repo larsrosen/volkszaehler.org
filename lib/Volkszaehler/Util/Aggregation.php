@@ -28,6 +28,7 @@ namespace Volkszaehler\Util;
 
 use Volkszaehler\Util;
 use Volkszaehler\Interpreter;
+use Volkszaehler\Definition;
 use Doctrine\DBAL;
 
 class Aggregation {
@@ -43,6 +44,7 @@ class Aggregation {
 
 	/**
 	 * Initialize static variables
+	 *
 	 * @todo When changing order or this array the aggregation table must be rebuilt
 	 */
 	static function init() {
@@ -63,28 +65,40 @@ class Aggregation {
 
 	/**
 	 * Remove aggregration data - either all or selected type
+	 *
 	 * @param  string $level aggregation level to remove data for
 	 * @return int 			 number of affected rows
 	 */
-	public function clear($level = 'all') {
+	public function clear($level = 'all', $channel_id = null) {
 		$sqlParameters = array();
 
 		if ($level == 'all') {
-			$sql = 'TRUNCATE TABLE aggregate';
+			if ($channel_id) {
+				$sql = 'DELETE FROM aggregate WHERE channel_id = ?';
+				$sqlParameters[] = $channel_id;
+			}
+			else {
+				$sql = 'TRUNCATE TABLE aggregate';
+			}
 		}
 		else {
-			$sqlParameters[] = $level;
-			$sql = 'DELETE FROM aggregate WHERE type=?';
+			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
+			$sql = 'DELETE FROM aggregate WHERE type = ?';
+			if ($channel_id) {
+				$sql .= ' AND channel_id = ?';
+				$sqlParameters[] = $channel_id;
+			}
 		}
 
 		if (Util\Debug::isActivated())
 			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
 
-		$rows = $this->conn->exec($sql, $sqlParameters);
+		$rows = $this->conn->executeQuery($sql, $sqlParameters);
 	}
 
 	/**
 	 * Test if aggregation level is valid and implemented
+	 *
 	 * @param  string  $level aggregation level (e.g. 'day')
 	 * @return boolean        validity
 	 */
@@ -95,6 +109,7 @@ class Aggregation {
 
 	/**
 	 * Convert aggregation level to numeric type
+	 *
 	 * @param  string $level aggregation level (e.g. 'day')
 	 * @return integer       aggregation level numeric value
 	 */
@@ -107,6 +122,7 @@ class Aggregation {
 
 	/**
 	 * SQL format for grouping data by aggregation level
+	 *
 	 * @param  string $level aggregation level (e.g. 'day')
 	 * @return string        SQL date format
 	 */
@@ -115,7 +131,65 @@ class Aggregation {
 	}
 
 	/**
-	 * Core data aggregration
+	 * Core data aggregation
+	 *
+	 * @param  int $channel_id  id of channel to perform aggregation on
+	 * @param  string $interpreter interpreter class name
+	 * @param  string $mode        aggregation mode (full, delta)
+	 * @param  string $level       aggregation level (day...)
+	 * @param  int $period      delta days to aggregate
+	 * @return int              number of rows
+	 */
+	protected function aggregateChannel($channel_id, $interpreter, $mode, $level, $period) {
+		$format = self::getAggregationDateFormat($level);
+		$type = self::getAggregationLevelTypeValue($level);
+
+		// get interpreter's aggregation function
+		$aggregationFunction = call_user_func(array($interpreter, 'groupExprSQL'), 'value');
+
+		$sqlParameters = array($type);
+		$sql = 'REPLACE INTO aggregate (channel_id, type, timestamp, value, count) ' .
+			   'SELECT channel_id, ? AS type, MAX(timestamp) AS timestamp, ' .
+			   $aggregationFunction . ' AS value, COUNT(timestamp) AS count ' .
+			   'FROM data ' .
+			   'WHERE timestamp < UNIX_TIMESTAMP(DATE_FORMAT(NOW(), ' . $format . ')) * 1000 ';
+
+		if ($channel_id) {
+			$sqlParameters[] = $channel_id;
+			$sql .=
+				'AND channel_id = ?';
+		}
+
+		if ($mode == 'delta') {
+			$sqlParameters[] = $type;
+			$sql .=
+			   'AND timestamp >= IFNULL((' .
+		   	   'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
+		   	   		'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $format . '), ' .
+		   	   		'INTERVAL 1 ' . $level . ')) * 1000 ' .
+			   'FROM aggregate ' .
+			   'WHERE channel_id = data.channel_id AND type = ?), 0) ';
+		}
+
+		if ($period) {
+			$sql .=
+			   'AND timestamp >= (SELECT UNIX_TIMESTAMP(DATE_SUB(DATE_FORMAT(NOW(), ' . $format . '), INTERVAL ? ' . $level . ')) * 1000) ';
+			$sqlParameters[] = $period;
+		}
+
+		$sql.= 'GROUP BY channel_id, ' . Interpreter\Interpreter::buildGroupBySQL($level);
+
+		if (Util\Debug::isActivated())
+			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
+
+		$rows = $this->conn->executeUpdate($sql, $sqlParameters);
+
+		return($rows);
+	}
+
+	/**
+	 * Core data aggregation wrapper
+	 *
 	 * @param  string $mode   'full' or 'delta' aggretation
 	 * @param  string $level  aggregation level (e.g. 'day')
 	 * @param  int    $period number of prior periods to aggregate in delta mode
@@ -130,41 +204,24 @@ class Aggregation {
 			throw new \Exception('Unsupported aggregation level ' . $level);
 		}
 
-		$format = self::getAggregationDateFormat($level);
-
-		$sqlParameters = array(self::getAggregationLevelTypeValue($level));
-		$sql = 'REPLACE INTO aggregate (channel_id, type, timestamp, value, count) ' .
-			   'SELECT channel_id, ? AS type, MAX(timestamp) AS timestamp, SUM(value) AS value, COUNT(timestamp) AS count ' .
-			   'FROM data ' .
-			   'WHERE timestamp < UNIX_TIMESTAMP(DATE_FORMAT(NOW(), ' . $format . ')) * 1000 ';
-
+		// get channel definition to select correct aggregation function
+		$sql = 'SELECT id, type FROM entities WHERE class = ?';
+		$sqlParameters = array('channel');
 		if ($channel_id) {
+			$sql .= ' AND id = ?';
 			$sqlParameters[] = $channel_id;
-			$sql .=
-				'AND channel_id = ?';
 		}
 
-		if ($mode == 'delta') {
-			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
-			$sql .=
-			   'AND timestamp >= IFNULL((' .
-		   	   'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
-		   	   		'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $format . '), ' .
-		   	   		'INTERVAL 1 ' . $level . ')) * 1000 ' .
-			   'FROM aggregate ' .
-			   'WHERE channel_id = data.channel_id AND type = ?), 0) ';
-		}
-		if ($period) {
-			$sql .=
-			   'AND timestamp >= (SELECT UNIX_TIMESTAMP(DATE_SUB(DATE_FORMAT(NOW(), ' . $format . '), INTERVAL ? ' . $level . ')) * 1000) ';
-			$sqlParameters[] = $period;
-		}
-		$sql.= 'GROUP BY channel_id, ' . Interpreter\Interpreter::buildGroupBySQL($level);
+		$rows = 0;
 
-		if (Util\Debug::isActivated())
-			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
+		// aggregate each channel
+		foreach ($this->conn->fetchAll($sql, $sqlParameters) as $row) {
+			$entity = Definition\EntityDefinition::get($row['type']);
+			$interpreter = $entity->getInterpreter();
 
-		$rows = $this->conn->executeUpdate($sql, $sqlParameters);
+			$rows += $this->aggregateChannel($row['id'], $interpreter, $mode, $level, $period);
+		}
+
 		return($rows);
 	}
 }

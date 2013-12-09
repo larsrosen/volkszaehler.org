@@ -95,7 +95,7 @@ class Cron {
 // TODO fix parameter splitting and add help
 if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESSIONNAME'] == 'Console') {
 	// parse options
-	$options = getopt("m:l:p:", array('mode:', 'level:', 'periods:'));
+	$options = getopt("m:l:p:h", array('mode:', 'level:', 'periods:', 'help'));
 	$mode    = (isset($options['m'])) ? strtolower($options['m']) : 'delta';
 	$level   = (isset($options['l'])) ? preg_split('/,/', strtolower($options['l'])) : array('day');
 	$period  = (isset($options['p'])) ? intval($options['p']) : 0;
