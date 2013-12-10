@@ -54,28 +54,39 @@ class CapabilitiesController extends Controller {
 			
 			$capabilities['configuration'] = $configuration;
 		}
-/*
-		// TODO fix COUNT performance on large INNODB tables
+
+		// db statistics
 		if (is_null($section) || $section == 'database') {
-			$conn = $this->em->getConnection(); // get dbal connection from EntityManager
+			$conn = $this->em->getConnection(); // get DBAL connection from EntityManager
 
-			$sql = 'SELECT ('.
-				   '	SELECT COUNT(1) '.
-				   '	FROM data'.
-				   ') AS rows, ('.
-				   '	SELECT SUM(data_length + index_length) '.
-				   '	FROM information_schema.tables '.
-				   '	WHERE table_schema = ?'.
-				   ') AS size';
+			// estimate InnoDB tables to avoid performance penalty
+			$rows = $conn->fetchAssoc('EXPLAIN SELECT COUNT(id) FROM data USE INDEX (PRIMARY)');
+			if (isset($rows['rows']))
+				$rows = $rows['rows'];
+			else // get correct values for MyISAM
+				$rows = $conn->fetchColumn('SELECT COUNT(id) FROM data USE INDEX (PRIMARY)');
 
-			$res = $conn->fetchArray($sql, array(Util\Configuration::read('db.dbname')));
+			// database disc space consumption
+			$sql = 'SELECT SUM(data_length + index_length) '.
+				   'FROM information_schema.tables '.
+				   'WHERE table_schema = ?';
+			$size = $conn->fetchColumn($sql, array(Util\Configuration::read('db.dbname')));
 
+			$aggregation = Util\Configuration::read('aggregation');
 			$capabilities['database'] = array(
-				'rows' => $res[0],
-				'size' => $res[1]
+				'data_rows' => $rows,
+				'data_size' => $size,
+				'aggregation_enabled' => ($aggregation) ? 1 : 0
 			);
+
+			// aggregation table size
+			if ($aggregation) {
+				$agg_rows = $conn->fetchColumn('SELECT COUNT(id) FROM aggregate USE INDEX (PRIMARY)');
+				$capabilities['database']['aggregation_rows'] = $agg_rows;
+				$capabilities['database']['aggregation_ratio'] = ($agg_rows) ? $rows/$agg_rows : 0;
+			}
 		}
-*/				
+				
 		if (is_null($section) || $section == 'formats') {
 			$capabilities['formats'] = array_keys(\Volkszaehler\Router::$viewMapping);
 		}
@@ -85,7 +96,7 @@ class CapabilitiesController extends Controller {
 		}
 		
 		if (is_null($section) || $section == 'definitions') {
-			if (!is_null($section)) { // only caching when we doesn't request dynamic informations
+			if (!is_null($section)) { // only caching when we don't request dynamic informations
 				$this->view->setCaching('expires', time()+2*7*24*60*60); // cache for 2 weeks
 			}
 			
