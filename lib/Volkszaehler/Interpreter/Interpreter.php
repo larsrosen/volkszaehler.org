@@ -180,6 +180,7 @@ abstract class Interpreter {
 	 * @param  string $sql           data selection sql
 	 * @param  array  $sqlParameters sql parameters
 	 * @return mixed                 sql statement
+	 * @author Andreas Goetz <cpuidle@gmx.de>
 	 */
 	protected function optimizeSQL($sqlRowCount, &$sql, &$sqlParameters) {
 		// backup parameters for count statement
@@ -317,6 +318,7 @@ abstract class Interpreter {
 
 	/**
 	 * Build SQL parameters for aggregation table access given timestamp boundaries
+	 * @author Andreas Goetz <cpuidle@gmx.de>
 	 */
 	private function buildAggregationTableParameters($type, $aggFrom, $aggTo, &$sqlTimeFilterPre, &$sqlTimeFilterPost, &$sqlTimeFilter) {
 		$sqlParameters = array($this->channel->getId());
