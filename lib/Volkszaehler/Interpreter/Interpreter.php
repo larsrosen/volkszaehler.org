@@ -194,32 +194,18 @@ abstract class Interpreter {
 		$useAggregation = Util\Configuration::read('aggregation');
 		$aggregator = new Util\Aggregation($this->conn);
 
-	// $this->conn->executeQuery('FLUSH TABLES');
-// $this->conn->executeQuery('RESET QUERY CACHE');
-
-// file_put_contents("1.txt", "useAggregation ".(($useAggregation)?1:0)."\n\n");
-// file_put_contents("1.txt", "from to {$this->from} {$this->to}\n\n", FILE_APPEND);
-// file_put_contents("1.txt", "aggFrom aggTo $aggFrom $aggTo\n\n", FILE_APPEND);
-
-// count rows- basis for further optimization
-// $this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParameters, 0);
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters).";\n\n", FILE_APPEND);
-// file_put_contents("1.txt", "rowCountClassic ".$this->rowCount."\n\n", FILE_APPEND);
-
 		// Optimize queries by applying aggregation table
 		if ($useAggregation) {
 			// run optimizer to get best (highest) applicable aggregation level
 			$aggregationLevel = $aggregator->getOptimalAggregationLevel($this->channel->getUuid(), $this->groupBy);
-
-			if ($aggregationLevel !== FALSE) {
-				// optimal aggregation level
-				$aggregationLevel = $aggregationLevel[0]['level'];
-				// numeric value of desired aggregation level
-				$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
-			}
+			$aggregationLevel = ($aggregationLevel) ? $aggregationLevel[0]['level'] : self::AGGREGATION_LEVEL;
+			// numeric value of desired aggregation level
+			$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
 
 			// valid boundaries?
-			if ($this->groupBy && $this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo)) {
+			$validBoundaries = $this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo);
+
+			if ($this->groupBy && $validBoundaries) {
 				// optimize grouped statement
 				$sqlParameters = $this->buildAggregationTableParameters($type, $aggFrom, $aggTo,
 					$sqlTimeFilterPre, $sqlTimeFilterPost, $sqlTimeFilter);
@@ -256,7 +242,7 @@ abstract class Interpreter {
 				$sqlRowCount = 'SELECT COUNT(1) ' .
 							   'FROM (' . $sqlRowCount . ') AS agg';
 			}
-			elseif (!$this->groupBy) {
+			elseif (!$this->groupBy && $validBoundaries) {
 				// optimize count statement
 				$sqlParametersRowCount = $this->buildAggregationTableParameters($type, $aggFrom, $aggTo,
 					$sqlTimeFilterPre, $sqlTimeFilterPost, $sqlTimeFilter);
@@ -274,13 +260,10 @@ abstract class Interpreter {
 
 		// count rows- basis for further optimization
 		$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParametersRowCount, 0);
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParametersRowCount).";\n\n", FILE_APPEND);
-// file_put_contents("1.txt", "rowCount ".$this->rowCount."\n\n", FILE_APPEND);
 
 		// potential to reduce result set - can't do this for already grouped SQL
 		if (!$this->groupBy && $this->tupleCount && ($this->rowCount > $this->tupleCount)) {
 			$packageSize = floor($this->rowCount / $this->tupleCount);
-// file_put_contents("1.txt", "packageSize $packageSize tupleCount {$this->tupleCount}\n\n", FILE_APPEND);
 
 			// optimize package statement special case: package into 1 tuple
 			if ($useAggregation && $packageSize > 1 && $this->tupleCount == 1 &&
@@ -327,8 +310,6 @@ abstract class Interpreter {
 					   'GROUP BY row DIV ' . $packageSize . ' ' .
 					   'ORDER BY timestamp ASC';
 			}
-// file_put_contents("1.txt", 'SET @row:=' . ($packageSize-2) . ";\n\n", FILE_APPEND);
-// file_put_contents("1.txt", Util\Debug::getParametrizedQuery($sql, $sqlParameters).";\n\n", FILE_APPEND);
 		}
 
 		return $this->rowCount;
