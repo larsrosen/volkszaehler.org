@@ -46,7 +46,6 @@ abstract class Interpreter {
 	protected $groupBy;	// user from/to from DataIterator for exact calculations!
 	protected $client;  // client type for specific optimizations
 
-	protected $useAggregation;  // use aggregation table for grouped queries
 
 	protected $rowCount;	// number of rows in the database
 	protected $tupleCount;	// number of requested tuples
@@ -183,8 +182,8 @@ abstract class Interpreter {
 	 * @return mixed                 sql statement
 	 */
 	protected function optimizeSQL($sqlRowCount, &$sql, &$sqlParameters) {
-// $this->conn->executeQuery('FLUSH TABLES');
-// $this->conn->executeQuery('RESET QUERY CACHE');
+		// backup parameters for count statement
+		$sqlParametersRowCount = $sqlParameters;
 
 		// @TODO add optimizer to choose best aggregation mode (for now, always 'day')
 		$aggregationLevel = self::AGGREGATION_LEVEL;
@@ -194,6 +193,9 @@ abstract class Interpreter {
 		// timestamp:   from ... agg_from ... agg_to ... to
 		$useAggregation = Util\Configuration::read('aggregation') &&
 			$this->getAggregationBoundary($aggregationLevel, $agg_from, $agg_to);
+
+// $this->conn->executeQuery('FLUSH TABLES');
+// $this->conn->executeQuery('RESET QUERY CACHE');
 
 // file_put_contents("1.txt", "useAggregation $useAggregation\n\n");
 // file_put_contents("1.txt", "from to {$this->from} {$this->to}\n\n", FILE_APPEND);
@@ -301,7 +303,7 @@ abstract class Interpreter {
 	}
 
 	/**
-	 * Calculate timestamp boundaries for aggregation table usage
+	 * Build SQL parameters for aggregation table access given timestamp boundaries
 	 */
 	private function buildAggregationTableParameters($type, $agg_from, $agg_to, &$sqlTimeFilterPre, &$sqlTimeFilterPost, &$sqlTimeFilter) {
 		$sqlParameters = array($this->channel->getId());
@@ -320,7 +322,7 @@ abstract class Interpreter {
 	}
 
 	/**
-	 * Calculate valid timestamp boundaries for aggregation table usage in grouped queries
+	 * Calculate valid timestamp boundaries for aggregation table usage
 	 *
 	 *     table:   --data-- -----aggregate----- -data-
 	 * timestamp:   from ... agg_from ... agg_to ... to
