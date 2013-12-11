@@ -19,14 +19,11 @@ class AggregationPerformanceTest extends DataContext
 	static $conn;
 	static $em;
 
-	static $testSize;
 	static $uuid = '00000000-0000-0000-0000-000000000000';
-	static $to; // limit data set for low performance clients
+	static $to; // = '10.1.2000'; // limit data set for low performance clients
 	static $base;
 	static $baseline;
 
-	const TEST_DAYS = 365;		 // count
-	const TEST_SPACING = 60;	 // sec
 	const MSG_WIDTH = 30;		 // output width
 
 	private $time;
@@ -37,12 +34,9 @@ class AggregationPerformanceTest extends DataContext
 	static function setupBeforeClass() {
 		parent::setupBeforeClass();
 
-		$dbConfig = Util\Configuration::read('db');
-		if (isset($dbConfig['admin'])) {
-			$dbConfig = array_merge($dbConfig, $dbConfig['admin']);
-		}
-		self::$conn = DBAL\DriverManager::getConnection($dbConfig);
 		self::$em = \Volkszaehler\Router::createEntityManager();
+		self::$conn = self::$em->getConnection();
+		self::$base = self::$context . '/' . static::$uuid . '.json?';
 
 		if (!self::$uuid) {
 			echo("Failure: need UUID before test.\nRun `phpunit Tests\SetupPerformanceData` to generate.");
@@ -57,9 +51,6 @@ class AggregationPerformanceTest extends DataContext
 		else {
 			self::$to = null;
 		}
-
-		self::$testSize = round(self::TEST_DAYS * 24 * 3600 / self::TEST_SPACING);
-		self::$base = self::$context . '/' . static::$uuid . '.json?';
 	}
 
 	static function getChannelByUUID($uuid) {
@@ -81,11 +72,20 @@ class AggregationPerformanceTest extends DataContext
 		// keep channel
 	}
 
-	protected function countAggregationRows($uuid = null) {
+	protected function countRows($uuid, $table = 'data') {
 		return self::$conn->fetchColumn(
-			'SELECT COUNT(aggregate.id) FROM aggregate ' .
-			'LEFT JOIN entities ON aggregate.channel_id = entities.id ' .
+			'SELECT COUNT(1) FROM ' . $table . ' ' .
+			'LEFT JOIN entities ON ' . $table . '.channel_id = entities.id ' .
 			'WHERE entities.uuid = ?', array(($uuid) ?: self::$uuid)
+		);
+	}
+
+	protected function countAggregationRows($uuid, $type) {
+		return self::$conn->fetchColumn(
+			'SELECT COUNT(1) FROM aggregate ' .
+			'LEFT JOIN entities ON aggregate.channel_id = entities.id ' .
+			'WHERE aggregate.type = ? AND entities.uuid = ?',
+			array($type, ($uuid) ?: self::$uuid)
 		);
 	}
 
@@ -124,9 +124,19 @@ class AggregationPerformanceTest extends DataContext
 	}
 
 	function testAggregation() {
-		$rows = $this->countAggregationRows(self::$uuid);
-		$this->assertGreaterThan(0, $rows);
-		echo($this->formatMsg("AggRatio") . "1:" . round(self::$testSize / $rows));
+		$rowsData = $this->countRows(self::$uuid, 'data');
+		$this->assertGreaterThan(0, $rowsData);
+		echo($this->formatMsg("DataRows") . number_format($rowsData, 0, '.', '.'));
+
+		$agg = new Util\Aggregation(self::$conn);
+		$aggLevels = $agg->getOptimalAggregationLevel(self::$uuid);
+
+		foreach ($aggLevels as $level) {
+			$rowsAgg = $this->countAggregationRows(self::$uuid, $level['type']);
+			$this->assertGreaterThan(0, $rowsAgg);
+			echo($this->formatMsg("AggregateRows  (" . $level['level'] . ")") . number_format($rowsAgg, 0, '.', '.'));
+			echo($this->formatMsg("AggregateRatio (" . $level['level'] . ")") . "1:" . round($rowsData / $rowsAgg));
+		}
 	}
 
 	// function testGetAllData() {
