@@ -52,12 +52,12 @@ class Cron {
 		if (!in_array($mode, array('full', 'delta')))
 			throw new \Exception('Unsupported aggregation mode ' . $mode);
 
+		$conn = $this->em->getConnection();
+
 		if ($command == 'create') {
 			echo("Recreating aggregation table.\n");
-			$conn = $this->em->getConnection();
-
-			$conn->exec('DROP TABLE IF EXISTS `aggregate`');
-			$conn->exec(
+			$conn->executeQuery('DROP TABLE IF EXISTS `aggregate`');
+			$conn->executeQuery(
 				'CREATE TABLE `aggregate` (' .
 				'  `id` int(11) NOT NULL AUTO_INCREMENT,' .
 				'  `channel_id` int(11) NOT NULL,' .
@@ -89,6 +89,14 @@ class Cron {
 				echo("Updated $rows rows.\n");
 			}
 		}
+		elseif ($command == 'optimize') {
+			echo("Optimizing aggregate table.\n");
+			$conn->executeQuery('OPTIMIZE TABLE aggregate');
+			echo("Optimizing data table (slow).\n");
+			$conn->executeQuery('OPTIMIZE TABLE data');
+		}
+		else
+			throw new \Exception('Unknown command ' . $command);
 	}
 }
 
@@ -114,6 +122,7 @@ if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESS
 		echo("       aggregate|run Run aggregation\n");
 		echo("              create Create aggregation table (DESTRUCTIVE)\n");
 		echo("               clear Clear aggregation table\n");
+		echo("            optimize Opimize data and aggregate tables\n");
 		echo("Options:\n");
 		echo("             -u[uid] uuid\n");
 		echo("            -l[evel] hour|day|month|year [,...]\n");
@@ -132,14 +141,10 @@ if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESS
 	$cron = new Cron();
 
 	foreach ($commands as $command) {
-		if (!in_array($command, array('create', 'clear', 'aggregate', 'run')))
-			throw new \Exception('Unknown command ' . $command);
-
 		$cron->run($command, $uuid, $level, $mode, $period);
 	}
 }
-else {
+else
 	throw new \Exception('This tool can only be run locally.');
-}
 
 ?>
