@@ -42,21 +42,17 @@ class Cron {
 	 */
 	protected $em;
 
-	/**
-	 * @var Util\Aggregation Database aggregator
-	 */
-	protected $aggregator;
-
 	public function __construct() {
 		$this->em = Router::createEntityManager(true); // get admin credentials
-		$this->aggregator = new Util\Aggregation($this->em->getConnection());
 	}
 
-	public function run($mode, $levels, $period = NULL) {
-		if (!in_array($mode, array('create', 'clear', 'full', 'delta')))
+	public function run($command, $uuid, $levels, $mode, $period = NULL) {
+		$aggregator = new Util\Aggregation($this->em->getConnection());
+
+		if (!in_array($mode, array('full', 'delta')))
 			throw new \Exception('Unsupported aggregation mode ' . $mode);
 
-		if ($mode == 'create') {
+		if ($command == 'create') {
 			echo("Recreating aggregation table.\n");
 			$conn = $this->em->getConnection();
 
@@ -73,19 +69,23 @@ class Cron {
 				'  UNIQUE KEY `ts_uniq` (`channel_id`,`type`,`timestamp`)' .
 				')');
 		}
-		else if ($mode == 'clear') {
-			echo("Clearing aggregation table.\n");
-			$this->aggregator->clear();
-			echo("Truncated aggregation table.\n");
+		elseif ($command == 'clear') {
+			$msg = "Clearing aggregation table";
+			if ($uuid) $msg .= " for UUID " . $uuid;
+			echo($msg . ".\n");
+			$aggregator->clear($uuid);
+			echo("Done clearing aggregation table.\n");
 		}
-		else {
+		elseif ($command == 'aggregate' || $command == 'run') {
 			// loop through all aggregation levels
 			foreach ($levels as $level) {
 				if (!Util\Aggregation::isValidAggregationLevel($level))
 					throw new \Exception('Unsupported aggregation level ' . $level);
 
-				echo("Performing $mode aggregation on $level level.\n");
-				$rows = $this->aggregator->aggregate($mode, $level, $period);
+				$msg = "Performing '" . $mode . "' aggregation";
+				if ($uuid) $msg .= " for UUID " . $uuid;
+				echo($msg . " on '" . $level . "' level.\n");
+				$rows = $aggregator->aggregate($uuid, $level, $mode, $period);
 				echo("Updated $rows rows.\n");
 			}
 		}
@@ -95,15 +95,51 @@ class Cron {
 // TODO fix parameter splitting and add help
 if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESSIONNAME'] == 'Console') {
 	// parse options
-	$options = getopt("m:l:p:h", array('mode:', 'level:', 'periods:', 'help'));
+	$options = getopt("u:m:l:p:h", array('uuid:', 'mode:', 'level:', 'periods:', 'help'));
+
+	$commands = array();
+	for ($i=1; $i<count($argv); $i++) {
+		$arg = $argv[$i];
+		// skip following parameter if option
+		if (preg_match('#^[-/].#', $arg)) {
+			if (isset($options[substr($arg, 1)])) $i++;
+			continue;
+		}
+		$commands[] = $arg;
+	}
+
+	if (isset($options['h']) || count($commands) == 0) {
+		echo("Usage: aggregate.php [options] command[s]\n");
+		echo("Commands:\n");
+		echo("       aggregate|run Run aggregation\n");
+		echo("              create Create aggregation table (DESTRUCTIVE)\n");
+		echo("               clear Clear aggregation table\n");
+		echo("Options:\n");
+		echo("             -u[uid] uuid\n");
+		echo("            -l[evel] hour|day|month|year [,...]\n");
+		echo("             -m[ode] full|delta\n");
+		echo("             -p[ast] number of previous time periods\n");
+		echo("Example:\n");
+		echo("         aggregate.php -uuid ABCD-0123 -mode delta -l month,day\n");
+		echo("Create monthly and daily aggregation data since last run for specified UUID\n");
+	}
+
+	$uuid    = (isset($options['u'])) ? strtolower($options['u']) : null;
 	$mode    = (isset($options['m'])) ? strtolower($options['m']) : 'delta';
 	$level   = (isset($options['l'])) ? preg_split('/,/', strtolower($options['l'])) : array('day');
 	$period  = (isset($options['p'])) ? intval($options['p']) : 0;
 
 	$cron = new Cron();
-	$cron->run($mode, $level, $period);
+
+	foreach ($commands as $command) {
+		if (!in_array($command, array('create', 'clear', 'aggregate', 'run')))
+			throw new \Exception('Unknown command ' . $command);
+
+		$cron->run($command, $uuid, $level, $mode, $period);
+	}
 }
-else
+else {
 	throw new \Exception('This tool can only be run locally.');
+}
 
 ?>

@@ -69,13 +69,15 @@ class Aggregation {
 	 * @param  string $level aggregation level to remove data for
 	 * @return int 			 number of affected rows
 	 */
-	public function clear($level = 'all', $channel_id = null) {
+	public function clear($uuid = null, $level = 'all') {
 		$sqlParameters = array();
 
 		if ($level == 'all') {
-			if ($channel_id) {
-				$sql = 'DELETE FROM aggregate WHERE channel_id = ?';
-				$sqlParameters[] = $channel_id;
+			if ($uuid) {
+				$sql = 'DELETE aggregate FROM aggregate ' .
+					   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+					   'WHERE entities.uuid = ?';
+				$sqlParameters[] = $uuid;
 			}
 			else {
 				$sql = 'TRUNCATE TABLE aggregate';
@@ -83,10 +85,12 @@ class Aggregation {
 		}
 		else {
 			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
-			$sql = 'DELETE FROM aggregate WHERE type = ?';
-			if ($channel_id) {
-				$sql .= ' AND channel_id = ?';
-				$sqlParameters[] = $channel_id;
+			$sql = 'DELETE aggregate FROM aggregate ' .
+				   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+				   'WHERE aggregate.type = ? ';
+			if ($uuid) {
+				$sql .= 'AND entities.uuid = ?';
+				$sqlParameters[] = $uuid;
 			}
 		}
 
@@ -133,12 +137,12 @@ class Aggregation {
 	/**
 	 * Core data aggregation
 	 *
-	 * @param  int $channel_id  id of channel to perform aggregation on
+	 * @param  int 	  $channel_id  id of channel to perform aggregation on
 	 * @param  string $interpreter interpreter class name
 	 * @param  string $mode        aggregation mode (full, delta)
 	 * @param  string $level       aggregation level (day...)
-	 * @param  int $period      delta days to aggregate
-	 * @return int              number of rows
+	 * @param  int 	  $period      delta days to aggregate
+	 * @return int    number of rows
 	 */
 	protected function aggregateChannel($channel_id, $interpreter, $mode, $level, $period) {
 		$format = self::getAggregationDateFormat($level);
@@ -190,12 +194,13 @@ class Aggregation {
 	/**
 	 * Core data aggregation wrapper
 	 *
-	 * @param  string $mode   'full' or 'delta' aggretation
+	 * @param  string $uuid   channel UUID
 	 * @param  string $level  aggregation level (e.g. 'day')
+	 * @param  string $mode   'full' or 'delta' aggretation
 	 * @param  int    $period number of prior periods to aggregate in delta mode
 	 * @return int         	  number of affected rows
 	 */
-	public function aggregate($mode = 'full', $level = 'day', $period = null, $channel_id = null) {
+	public function aggregate($uuid = null, $level = 'day', $mode = 'full', $period = null) {
 		// validate settings
 		if (!in_array($mode, array('full', 'delta'))) {
 			throw new \Exception('Unsupported aggregation mode ' . $mode);
@@ -205,11 +210,11 @@ class Aggregation {
 		}
 
 		// get channel definition to select correct aggregation function
-		$sql = 'SELECT id, type FROM entities WHERE class = ?';
+		$sql = 'SELECT id, uuid, type FROM entities WHERE class = ?';
 		$sqlParameters = array('channel');
-		if ($channel_id) {
-			$sql .= ' AND id = ?';
-			$sqlParameters[] = $channel_id;
+		if ($uuid) {
+			$sql .= ' AND uuid = ?';
+			$sqlParameters[] = $uuid;
 		}
 
 		$rows = 0;
