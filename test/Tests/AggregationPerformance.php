@@ -21,12 +21,15 @@ class AggregationPerformanceTest extends DataContext
 
 	static $testSize;
 	static $uuid = '00000000-0000-0000-0000-000000000000';
-	static $to; // = '1.2.2000'; // limit data set for low performance clients
+	static $to; // limit data set for low performance clients
+	static $base;
+	static $baseline;
 
 	const TEST_DAYS = 365;		 // count
 	const TEST_SPACING = 60;	 // sec
+	const MSG_WIDTH = 30;		 // output width
 
-	const MSG_WIDTH = 20;
+	private $time;
 
 	/**
 	 * Create DB connection and setup channel
@@ -41,10 +44,7 @@ class AggregationPerformanceTest extends DataContext
 		self::$conn = DBAL\DriverManager::getConnection($dbConfig);
 		self::$em = \Volkszaehler\Router::createEntityManager();
 
-		self::$testSize = round(self::TEST_DAYS * 24 * 3600 / self::TEST_SPACING);
-
 		if (!self::$uuid) {
-			// self::$uuid = self::createChannel('Aggregation', 'power', 100);
 			echo("Failure: need UUID before test.\nRun `phpunit Tests\SetupPerformanceData` to generate.");
 			die;
 		}
@@ -57,13 +57,16 @@ class AggregationPerformanceTest extends DataContext
 		else {
 			self::$to = null;
 		}
+
+		self::$testSize = round(self::TEST_DAYS * 24 * 3600 / self::TEST_SPACING);
+		self::$base = self::$context . '/' . static::$uuid . '.json?';
 	}
 
 	static function getChannelByUUID($uuid) {
 		$dql = 'SELECT a, p
-			FROM Volkszaehler\Model\Entity a
-			LEFT JOIN a.properties p
-			WHERE a.uuid = :uuid';
+				FROM Volkszaehler\Model\Entity a
+				LEFT JOIN a.properties p
+				WHERE a.uuid = :uuid';
 
 		$q = self::$em->createQuery($dql);
 		$q->setParameter('uuid', $uuid);
@@ -99,87 +102,61 @@ class AggregationPerformanceTest extends DataContext
 		return $msg  . ' ';
 	}
 
-	private function formatVal($val) {
-		if (is_float($val)) {
-			return(sprintf(($val >= 1000) ? "%.0f" : "%.2f", $val));
+	private function perf($msg, $speedup = false) {
+		$time = microtime(true) - $this->time;
+		if (!$speedup) self::$baseline = $time;
+		$timeStr = sprintf(($time >= 1000) ? "%.0f" : "%.2f", $time);
+		echo($this->formatMsg($msg) . $timeStr . "s ");
+
+		if ($speedup) {
+			$speedup = self::$baseline / $time;
+			echo('x' . sprintf("%.".max(0,2-floor(log($speedup,10)))."f", $speedup) . ' ');
 		}
-		return $val;
 	}
 
-	private function msg($msg, $val = null) {
-		echo($this->formatMsg($msg));
-		echo($val . " ");
-	}
-
-	private function perf($time, $msg = null) {
-		if ($msg) {
-			echo($this->formatMsg($msg));
-		}
-		echo($this->formatVal(self::$testSize / $time) . " recs/s ");
-	}
-
-	private function timer($time, $msg = null) {
-		if ($msg) {
-			echo($this->formatMsg($msg));
-		}
-		echo($this->formatVal($time) . " s ");
+	function setUp() {
+		$this->clearCache();
+		$this->time = microtime(true);
 	}
 
 	function testConfiguration() {
 		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set `config[aggregation] = true`');
 	}
 
-	function testGetAllDataGrouped() {
-		$this->clearCache();
-		$time = microtime(true);
-		$this->getTuples(1, self::$to, "day");
-		$time = microtime(true) - $time;
-
-		$this->perf($time, "GetGroupPerf");
-	}
-
 	function testAggregation() {
-		$channel_id = self::getChannelByUUID(self::$uuid)->getId();
-
 		$rows = $this->countAggregationRows(self::$uuid);
 		$this->assertGreaterThan(0, $rows);
-		echo($this->msg("AggRatio", "1:" . round(self::$testSize / $rows)));
+		echo($this->formatMsg("AggRatio") . "1:" . round(self::$testSize / $rows));
 	}
 
-	function testGetAllDataGroupedAggregated() {
-		$this->clearCache();
-		$time = microtime(true);
-		// $this->getTuples(1, null, 'day');
-		$url = self::$context . '/' . static::$uuid . '.json?';
-		$this->getTuplesByUrl($url, 1, self::$to, 'day', null, 'client=agg');
-		$time = microtime(true) - $time;
+	// function testGetAllData() {
+	// 	$this->getTuplesByUrl(self::$base, 1, '1.2.2000', null, null, 'client=slow');
+	// 	$this->perf("GetAllPerf");
+	// }
 
-		$this->perf($time, "GetAggPerf");
+	// function testGetAllData2() {
+	// 	$this->getTuplesByUrl(self::$base, 1, '1.2.2000', null, null);
+	// 	$this->perf("GetAllPerf (opt)", true);
+	// }
+
+	function testGetAllDataGrouped() {
+		$this->getTuplesByUrl(self::$base, 1, self::$to, 'day', null, 'client=slow');
+		$this->perf("GetGroupPerf");
+	}
+
+	function testGetAllDataGrouped2() {
+		$this->getTuplesByUrl(self::$base, 1, self::$to, 'day', null);
+		$this->perf("GetGroupPerf (opt)", true);
 	}
 
 	function testGetTotal() {
-		$this->clearCache();
-		$time = microtime(true);
-		$this->getTuples(1, self::$to, null, 1);
-		$time = microtime(true) - $time;
+		$this->getTuplesByUrl(self::$base, 1, self::$to, null, 1, 'client=slow');
+		$this->perf("GetTotalPerf");
+	}
 
-		$this->perf($time, "GetTotalPerf");
-
-		$this->clearCache();
-		$time = microtime(true);
-		$this->getTuples(1, self::$to, 'day', 1);
-		$time = microtime(true) - $time;
-
-		$this->perf($time, "GetTotalGroup");
-
-		$this->clearCache();
-		$time = microtime(true);
-		// $this->getTuples(1, null, 'day');
-		$url = self::$context . '/' . static::$uuid . '.json?';
-		$this->getTuplesByUrl($url, 1, self::$to, 'day', 1, 'client=agg');
-		$time = microtime(true) - $time;
-
-		$this->perf($time, "GetTotalAgg");
+	function testGetTotal2() {
+		$this->getTuplesByUrl(self::$base, 1, self::$to, null, 1);
+		$this->perf("GetTotalPerf (opt)", true);
 	}
 }
 

@@ -32,10 +32,11 @@ class AggregationTest extends DataContext
 	 * Cleanup aggregation
 	 */
 	static function tearDownAfterClass() {
-		if (self::$conn) {
+		if (self::$conn && self::$uuid) {
 			$agg = new Util\Aggregation(self::$conn);
-			$agg->clear();
+			$agg->clear(self::$uuid);
 		}
+		parent::tearDownAfterClass();
 	}
 
 	protected function countAggregationRows($uuid = null) {
@@ -52,9 +53,9 @@ class AggregationTest extends DataContext
 
 	function testClearAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
-		$agg->clear();
+		$agg->clear(self::$uuid);
 
-		$rows = self::$conn->fetchColumn('SELECT COUNT(id) FROM aggregate');
+		$rows = self::$conn->fetchColumn('SELECT COUNT(1) FROM aggregate INNER JOIN entities ON aggregate.channel_id = entities.id WHERE entities.id = ?', array(self::$uuid));
 		$this->assertEquals(0, $rows, 'aggregate table cannot be cleared');
 	}
 
@@ -66,7 +67,7 @@ class AggregationTest extends DataContext
 
 		// 0:00 today current timezone - must not be aggregated
 		$this->addTuple(strtotime('today 0:00') * 1000, 50);
-		$agg->aggregate('delta', 'day', 2);
+		$agg->aggregate(self::$uuid, 'day', 'delta', 2);
 
 		$rows = $this->countAggregationRows();
 		$this->assertEquals(0, $rows, 'current period wrongly appears in aggreate table');
@@ -76,14 +77,14 @@ class AggregationTest extends DataContext
 		$this->addTuple(strtotime('1 days ago 12:00') * 1000, 100);
 		$this->addTuple(strtotime('2 days ago 0:00') * 1000, 100);
 		$this->addTuple(strtotime('2 days ago 12:00') * 1000, 100);
-		$agg->aggregate('delta', 'day', 2);
+		$agg->aggregate(self::$uuid, 'day', 'delta', 2);
 
 		$rows = $this->countAggregationRows();
 		$this->assertEquals(2, $rows, 'last period missing from aggreate table');
 
 		// 0:00 three days ago - must not be aggregated
 		$this->addTuple(strtotime('3 days ago 0:00') * 1000, 50);
-		$agg->aggregate('delta', 'day', 2);
+		$agg->aggregate(self::$uuid, 'day', 'delta', 2);
 
 		$rows = $this->countAggregationRows();
 		$this->assertEquals(2, $rows, 'period before last wrongly appears in aggreate table');
@@ -100,7 +101,7 @@ class AggregationTest extends DataContext
 
 		// 0:00 last yesterday - must be aggregated
 		$this->addTuple(strtotime('1 days ago 0:00') * 1000, 100, $uuid2);
-		$agg->aggregate('delta', 'day', 2);
+		$agg->aggregate($uuid2, 'day', 'delta', 2);
 
 		$rows = $this->countAggregationRows($uuid2);
 		$this->assertEquals(1, $rows, 'repeated delta aggregation failed');
@@ -116,7 +117,7 @@ class AggregationTest extends DataContext
 	 */
 	function testGetBaseline() {
 		$agg = new Util\Aggregation(self::$conn);
-		$agg->clear();
+		$agg->clear(self::$uuid);
 
 		// unaggregated datapoints - 6 rows
 		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000);
@@ -128,7 +129,7 @@ class AggregationTest extends DataContext
 
 		// save baseline, then aggregate
 		$tuples = $this->json->data->tuples;
-		$agg->aggregate('delta', 'day', 2);
+		$agg->aggregate(self::$uuid, 'day', 'delta', 2);
 
 		// aggregated datapoints grouped - 4 rows for comparison
 		$this->getTuplesRaw(strtotime('3 days ago 0:00') * 1000, null, 'day');
