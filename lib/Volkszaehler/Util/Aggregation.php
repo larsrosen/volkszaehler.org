@@ -40,7 +40,7 @@ class Aggregation {
 	/**
 	 * @var SQL aggregation types and assorted date formats
 	 */
-	protected static $aggregation_types = array();
+	protected static $aggregationLevels = array();
 
 	/**
 	 * Initialize static variables
@@ -48,7 +48,7 @@ class Aggregation {
 	 * @todo When changing order or this array the aggregation table must be rebuilt
 	 */
 	static function init() {
-		self::$aggregation_types = array(
+		self::$aggregationLevels = array(
 			'second' => '"%Y-%m-%d %H:%i:%s"',	// type 0
 			'minute' => '"%Y-%m-%d %H:%i:00"',	// type 1
 			'hour' => 	'"%Y-%m-%d %H:00:00"',	// type 2
@@ -101,14 +101,24 @@ class Aggregation {
 	}
 
 	/**
+	 * Get list of aggregation levels
+	 *
+	 * @param  string  $level aggregation level (e.g. 'day')
+	 * @return boolean        validity
+	 */
+	public static function getAggregationLevels() {
+		return array_keys(self::$aggregationLevels);
+	}
+
+	/**
 	 * Test if aggregation level is valid and implemented
 	 *
 	 * @param  string  $level aggregation level (e.g. 'day')
 	 * @return boolean        validity
 	 */
 	public static function isValidAggregationLevel($level) {
-		return in_array($level, array_keys(self::$aggregation_types))
-			&& (isset(self::$aggregation_types[$level]));
+		return in_array($level, self::getAggregationLevels())
+			&& (isset(self::$aggregationLevels[$level]));
 	}
 
 	/**
@@ -118,9 +128,7 @@ class Aggregation {
 	 * @return integer       aggregation level numeric value
 	 */
 	public static function getAggregationLevelTypeValue($level) {
-		$levels = array_keys(self::$aggregation_types);
-		$type = array_search($level, $levels, true);
-
+		$type = array_search($level, self::getAggregationLevels(), true);
 		return($type);
 	}
 
@@ -131,7 +139,40 @@ class Aggregation {
 	 * @return string        SQL date format
 	 */
 	public static function getAggregationDateFormat($level) {
-		return self::$aggregation_types[$level];
+		return self::$aggregationLevels[$level];
+	}
+
+	/**
+	 * Simple optimizer - choose aggregation level with most data available
+	 *
+	 * @param  string  $targetLevel desired highest level (e.g. 'day')
+	 * @return boolean list of valid aggregation levels
+	 */
+	public function getOptimalAggregationLevel($uuid, $targetLevel = null) {
+		$levels = self::getAggregationLevels();
+
+		$sqlParameters = array($uuid);
+		$sql = 'SELECT aggregate.type, COUNT(aggregate.id) AS count FROM aggregate ' .
+			   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+			   'WHERE uuid = ? ';
+		if ($targetLevel) {
+			$sqlParameters[] = self::getAggregationLevelTypeValue($targetLevel);
+			$sql .= 'AND aggregate.type <= ? ';
+		}
+		else {
+			$sql .= 'AND count > 0 ';
+		}
+		$sql.= 'GROUP BY type '.
+			   'ORDER BY type DESC';
+
+		$rows = $this->conn->fetchAll($sql, $sqlParameters);
+
+		// append readable level name
+		for ($i=0; $i<count($rows); $i++) {
+			$rows[$i]['level'] = $levels[$rows[$i]['type']];
+		}
+
+		return count($rows) ? $rows : FALSE;
 	}
 
 	/**
