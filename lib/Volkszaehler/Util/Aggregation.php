@@ -196,33 +196,52 @@ class Aggregation {
 		$sql = 'REPLACE INTO aggregate (channel_id, type, timestamp, value, count) ' .
 			   'SELECT channel_id, ? AS type, MAX(timestamp) AS timestamp, ' .
 			   $aggregationFunction . ' AS value, COUNT(timestamp) AS count ' .
-			   'FROM data ' .
-			   'WHERE timestamp < UNIX_TIMESTAMP(DATE_FORMAT(NOW(), ' . $format . ')) * 1000 ';
+			   'FROM data WHERE ';
 
+		// selected channel only
 		if ($channel_id) {
 			$sqlParameters[] = $channel_id;
-			$sql .=
-				'AND channel_id = ?';
+			$sql .= 'channel_id = ? ';
 		}
 
+		// since last aggregation only
 		if ($mode == 'delta') {
-			$sqlParameters[] = $type;
-			$sql .=
-			   'AND timestamp >= IFNULL((' .
-		   	   'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
-		   	   		'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $format . '), ' .
-		   	   		'INTERVAL 1 ' . $level . ')) * 1000 ' .
-			   'FROM aggregate ' .
-			   'WHERE channel_id = data.channel_id AND type = ?), 0) ';
+			if ($channel_id) {
+				// selected channel
+				$sqlTimestamp = 'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
+						   	   		   'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $format . '), ' .
+						   	   		   'INTERVAL 1 ' . $level . ')) * 1000 ' .
+							   	'FROM aggregate ' .
+							   	'WHERE type = ? AND channel_id = ?';
+				if ($ts = $this->conn->fetchColumn($sqlTimestamp, array($type, $channel_id), 0)) {
+					$sqlParameters[] = $ts;
+					$sql .= 'AND timestamp >= ? ';
+				}
+			}
+			else {
+				// all channels
+				$sqlParameters[] = $type;
+				$sql .=
+				   'AND timestamp >= IFNULL((' .
+				   	   'SELECT UNIX_TIMESTAMP(DATE_ADD(' .
+				   	   		  'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $format . '), ' .
+				   	   		  'INTERVAL 1 ' . $level . ')) * 1000 ' .
+					   'FROM aggregate ' .
+					   'WHERE type = ? AND aggregate.channel_id = data.channel_id ' .
+				   '), 0) ';
+			}
 		}
 
+		// selected number of periods only
 		if ($period) {
 			$sql .=
 			   'AND timestamp >= (SELECT UNIX_TIMESTAMP(DATE_SUB(DATE_FORMAT(NOW(), ' . $format . '), INTERVAL ? ' . $level . ')) * 1000) ';
 			$sqlParameters[] = $period;
 		}
 
-		$sql.= 'GROUP BY channel_id, ' . Interpreter\Interpreter::buildGroupBySQL($level);
+		// up to before current period
+		$sql.= 'AND timestamp < UNIX_TIMESTAMP(DATE_FORMAT(NOW(), ' . $format . ')) * 1000 ' .
+			   'GROUP BY channel_id, ' . Interpreter\Interpreter::buildGroupBySQL($level);
 
 		if (Util\Debug::isActivated())
 			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
@@ -251,11 +270,11 @@ class Aggregation {
 		}
 
 		// get channel definition to select correct aggregation function
-		$sql = 'SELECT id, uuid, type FROM entities WHERE class = ?';
 		$sqlParameters = array('channel');
+		$sql = 'SELECT id, uuid, type FROM entities WHERE class = ?';
 		if ($uuid) {
-			$sql .= ' AND uuid = ?';
 			$sqlParameters[] = $uuid;
+			$sql .= ' AND uuid = ?';
 		}
 
 		$rows = 0;
