@@ -55,8 +55,8 @@ class CapabilitiesController extends Controller {
 			$capabilities['configuration'] = $configuration;
 		}
 
-		// db statistics
-		if (is_null($section) || $section == 'database') {
+		// db statistics - only if specifically requested
+		if ($section == 'database') {
 			$conn = $this->em->getConnection(); // get DBAL connection from EntityManager
 
 			// estimate InnoDB tables to avoid performance penalty
@@ -81,7 +81,7 @@ class CapabilitiesController extends Controller {
 
 			// aggregation table size
 			if ($aggregation) {
-				$agg_rows = $conn->fetchColumn('SELECT COUNT(id) FROM aggregate USE INDEX (PRIMARY)');
+				$agg_rows = $conn->fetchColumn('SELECT COUNT(1) FROM aggregate');
 				$capabilities['database']['aggregation_rows'] = $agg_rows;
 				$capabilities['database']['aggregation_ratio'] = ($agg_rows) ? $rows/$agg_rows : 0;
 			}
