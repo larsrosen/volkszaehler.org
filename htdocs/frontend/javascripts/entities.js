@@ -63,15 +63,7 @@ vz.entities.loadCookie = function() {
  */
 vz.entities.loadData = function() {
 	$('#overlay').html('<img src="images/loading.gif" alt="loading..." /><p>loading...</p>');
-/*
-	// replaced by v0.3 multi-UUID REST syntax
-	var queue = new Array;
-	this.each(function(entity) {
-		if (entity.active && entity.definition && entity.definition.model == 'Volkszaehler\\Model\\Channel') {
-			queue.push(entity.loadData());
-		}
-	}, true); // recursive!
-*/	
+
 	// put each middleware into its own request
 	var hosts = {};
 	this.each(function(entity) {
