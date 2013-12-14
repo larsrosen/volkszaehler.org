@@ -152,8 +152,8 @@ class Aggregation {
 		$levels = self::getAggregationLevels();
 
 		$sqlParameters = array($uuid);
-		$sql = 'SELECT aggregate.type, COUNT(aggregate.id) AS count FROM aggregate ' .
-			   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+		$sql = 'SELECT aggregate.type, COUNT(aggregate.id) AS count ' .
+			   'FROM aggregate INNER JOIN entities ON aggregate.channel_id = entities.id ' .
 			   'WHERE uuid = ? ';
 		if ($targetLevel) {
 			$sqlParameters[] = self::getAggregationLevelTypeValue($targetLevel);
@@ -162,7 +162,7 @@ class Aggregation {
 		else {
 			$sql .= 'AND count > 0 ';
 		}
-		$sql.= 'GROUP BY type '.
+		$sql.= 'GROUP BY type ' .
 			   'ORDER BY type DESC';
 
 		$rows = $this->conn->fetchAll($sql, $sqlParameters);

@@ -33,6 +33,8 @@ define('VZ_DIR', realpath(__DIR__ . '/../..'));
 
 require_once VZ_DIR . '/lib/bootstrap.php';
 
+// use GetOptionKit\GetOptionKit;
+
 /**
  * @author Andreas Goetz <cpuidle@gmx.de>
  */
@@ -103,14 +105,19 @@ class Cron {
 // TODO fix parameter splitting and add help
 if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESSIONNAME'] == 'Console') {
 	// parse options
-	$options = getopt("u:m:l:p:h", array('uuid:', 'mode:', 'level:', 'periods:', 'help'));
+	$options = getopt("u:m:l:p:h", array('uuid:', 'mode:', 'level:', 'period:', 'help'));
 
 	$commands = array();
 	for ($i=1; $i<count($argv); $i++) {
 		$arg = $argv[$i];
+		// echo("$arg\n");
 		// skip following parameter if option
-		if (preg_match('#^[-/].#', $arg)) {
-			if (isset($options[substr($arg, 1)])) $i++;
+		if (preg_match('#^[\-/].#', $arg)) {
+			if (isset($options[substr($arg, 1)])) {
+				// echo("-> ".print_r($options[substr($arg, 1)],1));
+				$i++;
+			}
+			// echo("-> cont\n");
 			continue;
 		}
 		$commands[] = $arg;
@@ -125,18 +132,33 @@ if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESS
 		echo("            optimize Opimize data and aggregate tables\n");
 		echo("Options:\n");
 		echo("             -u[uid] uuid\n");
-		echo("            -l[evel] hour|day|month|year [,...]\n");
+		echo("            -l[evel] hour|day|month|year\n");
 		echo("             -m[ode] full|delta\n");
-		echo("             -p[ast] number of previous time periods\n");
+		echo("           -p[eriod] number of previous time periods\n");
 		echo("Example:\n");
-		echo("         aggregate.php -uuid ABCD-0123 -mode delta -l month,day\n");
+		echo("         aggregate.php --uuid ABCD-0123 --mode delta -l month\n");
 		echo("Create monthly and daily aggregation data since last run for specified UUID\n");
 	}
 
 	$uuid    = (isset($options['u'])) ? strtolower($options['u']) : null;
 	$mode    = (isset($options['m'])) ? strtolower($options['m']) : 'delta';
-	$level   = (isset($options['l'])) ? preg_split('/,/', strtolower($options['l'])) : array('day');
 	$period  = (isset($options['p'])) ? intval($options['p']) : 0;
+	$level   = (isset($options['l'])) ? (is_array($options['l']) ? $options['l'] : array($options['l'])) : array('day');
+
+ 	// $getopt = new GetOptionKit;
+	// $getopt->add('u|uuid:', 'uuid');
+	// $getopt->add('l|level:', 'hour|day|month|year');
+	// $getopt->add('m|mode:', 'full|delta');
+	// $getopt->add('p|period:', 'number of previous time periods');
+
+	// try {
+	//  	$result = $getopt->parse( $argv );
+	//  	print_r($result);
+	//  	$result->verbose;
+	//  	$result->debug;
+	// } catch( Exception $e ) {
+	// 	echo $e->getMessage();
+	// }
 
 	$cron = new Cron();
 
