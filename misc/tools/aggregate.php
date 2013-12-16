@@ -7,7 +7,7 @@
  *
  * @author Andreas Goetz <cpuidle@gmx.de>
  * @copyright Copyright (c) 2013, The volkszaehler.org project
- * @package default
+ * @package tools
  * @license http://opensource.org/licenses/gpl-license.php GNU Public License
  */
 /*
@@ -27,13 +27,11 @@
  * along with volkszaehler.org. If not, see <http://www.gnu.org/licenses/>.
  */
 
-namespace Volkszaehler;
+use Volkszaehler\Util;
 
 define('VZ_DIR', realpath(__DIR__ . '/../..'));
 
 require_once VZ_DIR . '/lib/bootstrap.php';
-
-// use GetOptionKit\GetOptionKit;
 
 /**
  * @author Andreas Goetz <cpuidle@gmx.de>
@@ -48,7 +46,7 @@ class Cron {
 		$this->em = Router::createEntityManager(true); // get admin credentials
 	}
 
-	public function run($command, $uuid, $levels, $mode, $period = NULL) {
+	public function run($command, $uuids, $levels, $mode, $period = NULL) {
 		$aggregator = new Util\Aggregation($this->em->getConnection());
 
 		if (!in_array($mode, array('full', 'delta')))
@@ -79,16 +77,19 @@ class Cron {
 			echo("Done clearing aggregation table.\n");
 		}
 		elseif ($command == 'aggregate' || $command == 'run') {
-			// loop through all aggregation levels
-			foreach ($levels as $level) {
-				if (!Util\Aggregation::isValidAggregationLevel($level))
-					throw new \Exception('Unsupported aggregation level ' . $level);
+			// loop through all uuids
+			foreach ($uuids as $uuid) {
+				// loop through all aggregation levels
+				foreach ($levels as $level) {
+					if (!Util\Aggregation::isValidAggregationLevel($level))
+						throw new \Exception('Unsupported aggregation level ' . $level);
 
-				$msg = "Performing '" . $mode . "' aggregation";
-				if ($uuid) $msg .= " for UUID " . $uuid;
-				echo($msg . " on '" . $level . "' level.\n");
-				$rows = $aggregator->aggregate($uuid, $level, $mode, $period);
-				echo("Updated $rows rows.\n");
+					$msg = "Performing '" . $mode . "' aggregation";
+					if ($uuid) $msg .= " for UUID " . $uuid;
+					echo($msg . " on '" . $level . "' level.\n");
+					$rows = $aggregator->aggregate($uuid, $level, $mode, $period);
+					echo("Updated $rows rows.\n");
+				}
 			}
 		}
 		elseif ($command == 'optimize') {
@@ -102,28 +103,18 @@ class Cron {
 	}
 }
 
-// TODO fix parameter splitting and add help
-if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESSIONNAME'] == 'Console') {
-	// parse options
-	$options = getopt("u:m:l:p:h", array('uuid:', 'mode:', 'level:', 'period:', 'help'));
+$console = new Util\Console($argv, array('u:'=>'uuid:', 'm:'=>'mode:', 'l:'=>'level', 'p:'=>'period', 'h'=>'help'));
 
-	$commands = array();
-	for ($i=1; $i<count($argv); $i++) {
-		$arg = $argv[$i];
-		// echo("$arg\n");
-		// skip following parameter if option
-		if (preg_match('#^[\-/].#', $arg)) {
-			if (isset($options[substr($arg, 1)])) {
-				// echo("-> ".print_r($options[substr($arg, 1)],1));
-				$i++;
-			}
-			// echo("-> cont\n");
-			continue;
-		}
-		$commands[] = $arg;
-	}
+if ($console::isConsole()) {
+	$help    = $console->getOption('h');
+	$uuid    = $console->getOption('u');
+	$mode    = $console->getOption('m', array('delta'));
+	$level   = $console->getOption('l', array('day'));
+	$period  = $console->getOption('p');
 
-	if (isset($options['h']) || count($commands) == 0) {
+	$commands = $console->getCommand();
+
+	if ($help || count($commands) == 0) {
 		echo("Usage: aggregate.php [options] command[s]\n");
 		echo("Commands:\n");
 		echo("       aggregate|run Run aggregation\n");
@@ -140,30 +131,10 @@ if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESS
 		echo("Create monthly and daily aggregation data since last run for specified UUID\n");
 	}
 
-	$uuid    = (isset($options['u'])) ? strtolower($options['u']) : null;
-	$mode    = (isset($options['m'])) ? strtolower($options['m']) : 'delta';
-	$period  = (isset($options['p'])) ? intval($options['p']) : 0;
-	$level   = (isset($options['l'])) ? (is_array($options['l']) ? $options['l'] : array($options['l'])) : array('day');
-
- 	// $getopt = new GetOptionKit;
-	// $getopt->add('u|uuid:', 'uuid');
-	// $getopt->add('l|level:', 'hour|day|month|year');
-	// $getopt->add('m|mode:', 'full|delta');
-	// $getopt->add('p|period:', 'number of previous time periods');
-
-	// try {
-	//  	$result = $getopt->parse( $argv );
-	//  	print_r($result);
-	//  	$result->verbose;
-	//  	$result->debug;
-	// } catch( Exception $e ) {
-	// 	echo $e->getMessage();
-	// }
-
 	$cron = new Cron();
 
 	foreach ($commands as $command) {
-		$cron->run($command, $uuid, $level, $mode, $period);
+		$cron->run($command, $uuid, $level, $mode[0], $period[0]);
 	}
 }
 else

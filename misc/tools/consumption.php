@@ -1,4 +1,30 @@
 <?php
+/**
+ * Command line tool for setting channel consumption to desired value
+ *
+ * Implemented by manipulating the first DB tuple total consumption
+ *
+ * @author Andreas Goetz <cpuidle@gmx.de>
+ * @copyright Copyright (c) 2013, The volkszaehler.org project
+ * @package tools
+ * @license http://opensource.org/licenses/gpl-license.php GNU Public License
+ */
+/*
+ * This file is part of volkzaehler.org
+ *
+ * volkzaehler.org is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * any later version.
+ *
+ * volkzaehler.org is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with volkszaehler.org. If not, see <http://www.gnu.org/licenses/>.
+ */
 
 use Volkszaehler\Util;
 use Volkszaehler\Definition;
@@ -12,7 +38,7 @@ require VZ_DIR . '/lib/bootstrap.php';
 /**
 * Total handling
 */
-class SetTotal
+class Consumption
 {
 	protected $em;
 	protected $conn;
@@ -21,17 +47,19 @@ class SetTotal
 	private $uuid;
 	private $total;
 	private $pretty;
+	private $verbose;
 
 	private $entity;
 	private $resolution;
 	private $class;
 	private $tuples;
 
-	function __construct($uuid, $total, $pretty = false)
+	function __construct($uuid, $total, $pretty = false, $verbose = false)
 	{
 		$this->uuid = $uuid;
 		$this->total = $total;
 		$this->pretty = $pretty;
+		$this->verbose = $verbose;
 
 		$this->em = Volkszaehler\Router::createEntityManager();
 		$this->conn = $this->em->getConnection();
@@ -67,26 +95,31 @@ class SetTotal
 		echo("Current total: ".$this->numFmt($consumption)." Wh\n");
 		// echo("rowCount: $rowCount\n");
 
+		if ($this->total == $consumption) {
+			echo("Nothing to do.");
+			return;
+		}
+
 		if ($this->total && $rowCount > 1) {
+			echo("New total: ".$this->numFmt($this->total)." Wh\n");
+
 			// find first tuple
 			$interpreter = $this->getTuples(0, 0);
-// print_r($this->tuples);
 			$from = $interpreter->getFrom();
 			$to = (count($this->tuples) > 1) ? $this->tuples[1][0] : $interpreter->getTo();	// end of first period
-// echo("from/to $from $to\n");
-			echo("Period: ".(($to - $from)/1000)."s\n");
+			if ($this->verbose) echo("First period: ".(($to - $from)/1000)."s\n");
 
 			// add consumption of first tuple
-			echo("periodValue: ".$this->numFmt($this->tuples[0][1])." W\n");
+			if ($this->verbose) echo("Period usage: ".$this->numFmt($this->tuples[0][1])." W\n");
 			$periodConsumption = $this->tuples[0][1] * ($to - $from) / 3.6e6;
-			echo("periodConsumption: ".$this->numFmt($periodConsumption)." Wh\n");
+			if ($this->verbose) echo("Period consumption: ".$this->numFmt($periodConsumption)." Wh\n");
 
 			// new desired total consumption
 			$newConsumption = $this->total - $consumption + $periodConsumption; // Wh
-			echo("newConsumption: ".$this->numFmt($newConsumption)." Wh\n");
+			if ($this->verbose) echo("Updated consumption: ".$this->numFmt($newConsumption)." Wh\n");
 
 			$periodValue = $newConsumption * $this->resolution / 1000;
-			echo("periodValue: ".$this->numFmt($periodValue)."\n");
+			if ($this->verbose) echo("Updated value: ".$this->numFmt($periodValue)."\n");
 
 			// update and clean aggregate table
 			$this->conn->beginTransaction();
@@ -99,69 +132,50 @@ class SetTotal
 
 			// clean aggregates- now invalid
 			if (Util\Configuration::read('aggregation')) {
-				$sql = 'DELETE aggregate ' .
-					   'FROM aggregate ' .
-					   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
-					   'WHERE entities.uuid = ?';
-				$this->conn->executeQuery($sql, array($this->uuid));
+				$agg = new Util\Aggregation($this->conn);
+				$agg->clear($this->uuid);
+
+				echo("Aggregation is enabled- please recreate aggregation table:\n");
+				echo("php misc/tools/aggregate.php -u " . $this->uuid . " run\n");
 			}
 
 			$this->conn->commit();
 
-			$interpreter = $this->getTuples(0, '31.12.2030', 1);
-			$consumption = $interpreter->getConsumption();
-			echo("Updated total: ".$this->numFmt($consumption)."\n");
-
-			// $interpreter = $this->getTuples(0, 0);
-			// print_r($this->tuples);
+			// verification step- only if verbose as this can be slow
+			if ($this->verbose) {
+				$interpreter = $this->getTuples(0, '31.12.2030', 1);
+				$consumption = $interpreter->getConsumption();
+				echo("Updated total: ".$this->numFmt($consumption)."\n");
+			}
 		}
 	}
 }
 
-/**
- * Get short or long options value
- * @param  string $short short option name
- * @param  string $long  long option name
- * @return array         options, FALSE if not set
- */
-function getoptVal($options, $short = null, $long = null, $default = false) {
-	$val = array();
+$console = new Util\Console($argv, array('u:'=>'uuid:', 't:'=>'total:', 'p'=>'pretty', 'h'=>'help', 'v'=>'verbose'));
 
-	if (isset($short) && isset($options[$short])) {
-		if (is_array($options[$short]))
-			$val = array_merge($val, $options[$short]);
-		else
-			$val[] = $options[$short];
-	}
-	elseif (isset($long) && isset($options[$long])) {
-		if (is_array($options[$long]))
-			$val = array_merge($val, $options[$long]);
-		else
-			$val[] = $options[$long];
-	}
-
-	return count($val) ? $val : $default;
-}
-
-if (php_sapi_name() == 'cli' || isset($_SERVER['SESSIONNAME']) && $_SERVER['SESSIONNAME'] == 'Console') {
-	// parse options
-	$options = getopt("u:t:hp", array('uuid:', 'total:', 'help', 'pretty'));
-
-	$help    = getoptVal($options, 'h', 'help');
-	$uuid    = getoptVal($options, 'u', 'uuid');
-	$total   = getoptVal($options, 't', 'total');
-	$pretty  = getoptVal($options, 'p', 'pretty');
+if ($console::isConsole()) {
+	$help    = $console->getOption('h');
+	$uuid    = $console->getOption('u');
+	$total   = $console->getOption('t');
+	$pretty  = $console->getOption('p');
+	$verbose = $console->getOption('v');
 
 	if ($help || empty($uuid)) {
-		echo("Usage: settotal.php [options] value\n");
+		echo("Usage: consumption.php [options] value\n");
 		echo("Options:\n");
-		echo("             -u[uid] uuid\n");
-		echo("            -t[otal] new total value\n");
+		echo("           -u[uid] uuid\n");
+		echo("          -t[otal] new total value\n");
+		echo("         -p[retty] format output values\n");
+		echo("        -v[erbose] verbose messages\n");
 		echo("Example:\n");
-		echo("         settotal.php --uuid ABCD-0123 19\n");
+		echo("       consumption.php --uuid ABCD-0123 -t 19000\n");
 		die;
 	}
 
-	$job = new SetTotal($uuid[0], $total[0], $pretty);
+	$job = new Consumption($uuid[0], $total[0], $pretty, $verbose);
 	$job->run();
 }
+else
+	throw new \Exception('This tool can only be run locally.');
+
+?>
