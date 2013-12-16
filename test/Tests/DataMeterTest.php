@@ -244,42 +244,6 @@ class DataMeterTest extends DataContext
 		$this->assertTuple(0, $this->makeTuple($this->ts1, $this->ts2, $this->value2));
 		$this->assertTuple(1, $this->makeTuple($this->ts2, $this->ts4, $this->value3 + $this->value4));
 	}
-
-	/**
-	 * @depends testGetMultiple
-	 */
-	function testSetTotal() {
-		$this->getTuples(0);
-		echo("\nold consumption: {$this->json->data->consumption}\n");
-
-		// new desired total consumption
-		$total = 75; // kWh
-		$delta = $total - $this->json->data->consumption / 1000; // kWh
-
-		$rowCount = $this->json->data->rows;
-		if ($rowCount) {
-			// we have starting timestamp + at least one valid tuple- get tuple range
-			$ts1 = $this->json->data->from;
-			$ts2 = ($rowCount > 2) ? $this->json->data->tuples[1][0] : $this->json->data->to;
-
-			// add consumption of first tuple
-			$delta += $this->json->data->tuples[0][1] * ($ts2 - $ts1) / 3.6e9; // kWh
-
-			// update tuple to match desired total
-			$url = self::$context . '/' . self::$uuid . '.json?operation=edit&ts=' . $ts2 . '&value=' . ($delta * self::$resolution); // kWh * res
-			$this->getJson($url);
-
-			// verify total consumption
-			$this->getTuples(0, null, '', 1);
-			echo("new consumption: {$this->json->data->consumption}\n");
-
-			$this->assertFromTo($ts1, $this->json->data->to);
-			$this->assertEquals($total * 1000, $this->json->data->consumption); // compare Wh
-		}
-		else {
-			echo("Not enough tuples\n");
-		}
-	}
 }
 
 ?>
