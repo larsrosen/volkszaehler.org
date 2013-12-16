@@ -42,12 +42,43 @@ class Cron {
 	 */
 	protected $em;
 
+	protected $aggregator;
+
 	public function __construct() {
-		$this->em = Router::createEntityManager(true); // get admin credentials
+		$this->em = Volkszaehler\Router::createEntityManager(true); // get admin credentials
 	}
 
-	public function run($command, $uuids, $levels, $mode, $period = NULL) {
-		$aggregator = new Util\Aggregation($this->em->getConnection());
+	/**
+	 * Aggregate channel
+	 */
+	public function aggregate($uuid, $levels, $mode, $period) {
+		// loop through all aggregation levels
+		foreach ($levels as $level) {
+			if (!Util\Aggregation::isValidAggregationLevel($level))
+				throw new \Exception('Unsupported aggregation level ' . $level);
+
+			$msg = "Performing '" . $mode . "' aggregation";
+			if ($uuid) $msg .= " for UUID " . $uuid;
+			echo($msg . " on '" . $level . "' level.\n");
+			$rows = $this->aggregator->aggregate($uuid, $level, $mode, $period);
+			echo("Updated $rows rows.\n");
+		}
+	}
+
+	/**
+	 * Clear aggregate table for channel
+	 * @todo add levels support
+	 */
+	public function clear($uuid) {
+		$msg = "Clearing aggregation table";
+		if ($uuid) $msg .= " for UUID " . $uuid;
+		echo($msg . ".\n");
+		$this->aggregator->clear($uuid);
+		echo("Done clearing aggregation table.\n");
+	}
+
+	public function run($command, $uuids, $levels, $mode, $period = null) {
+		$this->aggregator = new Util\Aggregation($this->em->getConnection());
 
 		if (!in_array($mode, array('full', 'delta')))
 			throw new \Exception('Unsupported aggregation mode ' . $mode);
@@ -69,34 +100,33 @@ class Cron {
 				'  UNIQUE KEY `ts_uniq` (`channel_id`,`type`,`timestamp`)' .
 				')');
 		}
-		elseif ($command == 'clear') {
-			$msg = "Clearing aggregation table";
-			if ($uuid) $msg .= " for UUID " . $uuid;
-			echo($msg . ".\n");
-			$aggregator->clear($uuid);
-			echo("Done clearing aggregation table.\n");
-		}
-		elseif ($command == 'aggregate' || $command == 'run') {
-			// loop through all uuids
-			foreach ($uuids as $uuid) {
-				// loop through all aggregation levels
-				foreach ($levels as $level) {
-					if (!Util\Aggregation::isValidAggregationLevel($level))
-						throw new \Exception('Unsupported aggregation level ' . $level);
-
-					$msg = "Performing '" . $mode . "' aggregation";
-					if ($uuid) $msg .= " for UUID " . $uuid;
-					echo($msg . " on '" . $level . "' level.\n");
-					$rows = $aggregator->aggregate($uuid, $level, $mode, $period);
-					echo("Updated $rows rows.\n");
-				}
-			}
-		}
 		elseif ($command == 'optimize') {
 			echo("Optimizing aggregate table.\n");
 			$conn->executeQuery('OPTIMIZE TABLE aggregate');
 			echo("Optimizing data table (slow).\n");
 			$conn->executeQuery('OPTIMIZE TABLE data');
+		}
+		elseif ($command == 'clear') {
+			// loop through all uuids
+			if (is_array($uuids)) {
+				foreach ($uuids as $uuid) {
+					$this->clear($uuid, $levels, $mode, $period);
+				}
+			}
+			else {
+				$this->clear(null, $levels, $mode, $period);
+			}
+		}
+		elseif ($command == 'aggregate' || $command == 'run') {
+			// loop through all uuids
+			if (is_array($uuids)) {
+				foreach ($uuids as $uuid) {
+					$this->aggregate($uuid, $levels, $mode, $period);
+				}
+			}
+			else {
+				$this->aggregate(null, $levels, $mode, $period);
+			}
 		}
 		else
 			throw new \Exception('Unknown command ' . $command);
