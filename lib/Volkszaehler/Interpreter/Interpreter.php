@@ -267,7 +267,8 @@ abstract class Interpreter {
 			$packageSize = floor($this->rowCount / $this->tupleCount);
 
 			// optimize package statement special case: package into 1 tuple
-			if ($useAggregation && $packageSize > 1 && $this->tupleCount == 1 &&
+			if ($useAggregation && $validBoundaries &&
+				$packageSize > 1 && $this->tupleCount == 1 &&
 				// shift aggregation boundary start by 1 unit to make sure first tuple is not aggregated
 				$this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo, 1)) {
 
@@ -479,8 +480,8 @@ abstract class Interpreter {
 	 * @return float
 	 */
 	protected static function parseDateTimeString($string) {
-		if (is_numeric($string)) { // handling as ms timestamp
-			return (float) $string;
+		if (ctype_digit((string)$string)) { // handling as ms timestamp
+			return (double) $string;
 		}
 		elseif ($ts = strtotime($string)) {
 			return $ts * 1000;
