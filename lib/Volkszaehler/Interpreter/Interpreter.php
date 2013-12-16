@@ -144,7 +144,7 @@ abstract class Interpreter {
 				   'ORDER BY timestamp ASC';
 		}
 		else {
-			$sqlRowCount = 'SELECT COUNT(*) FROM data WHERE channel_id = ?' . $sqlTimeFilter;
+			$sqlRowCount = 'SELECT COUNT(1) FROM data WHERE channel_id = ?' . $sqlTimeFilter;
 			$sql = 'SELECT timestamp, value, 1 AS count FROM data WHERE channel_id=?' . $sqlTimeFilter . ' ORDER BY timestamp ASC';
 		}
 
@@ -199,12 +199,18 @@ abstract class Interpreter {
 		if ($useAggregation) {
 			// run optimizer to get best (highest) applicable aggregation level
 			$aggregationLevel = $aggregator->getOptimalAggregationLevel($this->channel->getUuid(), $this->groupBy);
-			$aggregationLevel = ($aggregationLevel) ? $aggregationLevel[0]['level'] : self::AGGREGATION_LEVEL;
-			// numeric value of desired aggregation level
-			$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
+			if ($aggregationLevel) {
+				$aggregationLevel = $aggregationLevel[0]['level'];
 
-			// valid boundaries?
-			$validBoundaries = $this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo);
+				// numeric value of desired aggregation level
+				$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
+
+				// valid boundaries?
+				$validBoundaries = $this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo);
+			}
+			else {
+				$validBoundaries = false;
+			}
 
 			if ($this->groupBy && $validBoundaries) {
 				// optimize grouped statement

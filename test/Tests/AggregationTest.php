@@ -41,8 +41,8 @@ class AggregationTest extends DataContext
 
 	protected function countAggregationRows($uuid = null) {
 		return self::$conn->fetchColumn(
-			'SELECT COUNT(aggregate.id) FROM aggregate ' .
-			'LEFT JOIN entities ON aggregate.channel_id = entities.id ' .
+			'SELECT COUNT(1) FROM aggregate ' .
+			'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
 			'WHERE entities.uuid = ?', array(($uuid) ?: self::$uuid)
 		);
 	}
@@ -183,9 +183,18 @@ class AggregationTest extends DataContext
 		$this->assertEquals(1, $this->json->data->rows);
 	}
 
+	/**
+	 * @depends testGetBaseline
+	 */
+	function testAggregateOptimizer() {
+		// 3 data, cannot use daily aggregates for hourly request
+		$this->getTuplesRaw(strtotime('2 days ago 0:00') * 1000, strtotime('1 days ago 0:00') * 1000, 'hour');
+		$this->assertEquals(3, $this->json->data->rows, 'Possibly wrong aggregation level chosen by optimizer');
+	}
+
 	function testFullAggregation() {
 		// currently not implemented for performance reasons
-		echo('currently not implemented for performance reasons');
+		echo('not implemented');
 	}
 }
 
