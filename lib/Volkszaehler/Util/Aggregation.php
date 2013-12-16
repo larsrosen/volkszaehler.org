@@ -64,43 +64,6 @@ class Aggregation {
 	}
 
 	/**
-	 * Remove aggregration data - either all or selected type
-	 *
-	 * @param  string $level aggregation level to remove data for
-	 * @return int 			 number of affected rows
-	 */
-	public function clear($uuid = null, $level = 'all') {
-		$sqlParameters = array();
-
-		if ($level == 'all') {
-			if ($uuid) {
-				$sql = 'DELETE aggregate FROM aggregate ' .
-					   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
-					   'WHERE entities.uuid = ?';
-				$sqlParameters[] = $uuid;
-			}
-			else {
-				$sql = 'TRUNCATE TABLE aggregate';
-			}
-		}
-		else {
-			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
-			$sql = 'DELETE aggregate FROM aggregate ' .
-				   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
-				   'WHERE aggregate.type = ? ';
-			if ($uuid) {
-				$sql .= 'AND entities.uuid = ?';
-				$sqlParameters[] = $uuid;
-			}
-		}
-
-		if (Util\Debug::isActivated())
-			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
-
-		$rows = $this->conn->executeQuery($sql, $sqlParameters);
-	}
-
-	/**
 	 * Get list of aggregation levels
 	 *
 	 * @param  string  $level aggregation level (e.g. 'day')
@@ -173,6 +136,43 @@ class Aggregation {
 		}
 
 		return count($rows) ? $rows : FALSE;
+	}
+
+	/**
+	 * Remove aggregration data - either all or selected type
+	 *
+	 * @param  string $level aggregation level to remove data for
+	 * @return int 			 number of affected rows
+	 */
+	public function clear($uuid = null, $level = 'all') {
+		$sqlParameters = array();
+
+		if ($level == 'all') {
+			if ($uuid) {
+				$sql = 'DELETE aggregate FROM aggregate ' .
+					   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+					   'WHERE entities.uuid = ?';
+				$sqlParameters[] = $uuid;
+			}
+			else {
+				$sql = 'TRUNCATE TABLE aggregate';
+			}
+		}
+		else {
+			$sqlParameters[] = self::getAggregationLevelTypeValue($level);
+			$sql = 'DELETE aggregate FROM aggregate ' .
+				   'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
+				   'WHERE aggregate.type = ? ';
+			if ($uuid) {
+				$sql .= 'AND entities.uuid = ?';
+				$sqlParameters[] = $uuid;
+			}
+		}
+
+		if (Util\Debug::isActivated())
+			echo(Util\Debug::getParametrizedQuery($sql, $sqlParameters)."\n");
+
+		$rows = $this->conn->executeQuery($sql, $sqlParameters);
 	}
 
 	/**
