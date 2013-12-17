@@ -56,8 +56,6 @@ abstract class Interpreter {
 
 	protected $optimizer;
 
-	const AGGREGATION_LEVEL = 'day';
-
 	/**
 	 * Constructor
 	 *
@@ -86,6 +84,7 @@ abstract class Interpreter {
 			throw new \Exception('from is larger than to parameter');
 		}
 
+		// add DB-specific SQL optimizations
 		$this->optimizer = SQL\SQLOptimizer::factory($this, $this->conn);
 	}
 
@@ -131,7 +130,7 @@ abstract class Interpreter {
 			}
 		}
 
-		// set parameters
+		// set parameters; repeat if modified after setting
 		if ($this->optimizer) {
 			$this->optimizer->setParameters($this->from, $this->to, $this->tupleCount, $this->groupBy);
 		}

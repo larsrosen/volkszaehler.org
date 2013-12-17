@@ -72,7 +72,18 @@ class SQLOptimizer {
 	}
 
 	/**
-	 * Interpreter proxy magic- keeps the code movable between Interpreter and Optimizers
+	 * Gives access to hidden interpreter properties
+	 */
+	public function setParameters($from, $to, $tupleCount, $groupBy) {
+		$this->from = $from;
+		$this->to = $to;
+		$this->tupleCount = $tupleCount;
+		$this->groupBy = $groupBy;
+	}
+
+	/**
+	 * Proxy magic. Transparently access public interpreter properties
+	 * Keeps the code portable between Interpreter and SQLOptimizer
 	 */
 	public function __get($property) {
 		if ($property == 'channel') {
@@ -89,18 +100,69 @@ class SQLOptimizer {
    		}
 	}
 
-	public function setParameters($from, $to, $tupleCount, $groupBy) {
-		$this->from = $from;
-		$this->to = $to;
-		$this->tupleCount = $tupleCount;
-		$this->groupBy = $groupBy;
+	/**
+	 * DB-specific data grouping by date functions
+	 * Default implementation
+	 *
+	 * @param string $groupBy
+	 * @return string the sql part
+	 */
+	public static function buildGroupBySQL($groupBy) {
+		$ts = 'FROM_UNIXTIME(timestamp/1000)'; // just for saving space
+
+		switch ($groupBy) {
+			case 'year':
+				return 'YEAR(' . $ts . ')';
+				break;
+
+			case 'month':
+				return 'YEAR(' . $ts . '), MONTH(' . $ts . ')';
+				break;
+
+			case 'week':
+				return 'YEAR(' . $ts . '), WEEKOFYEAR(' . $ts . ')';
+				break;
+
+			case 'day':
+				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . ')';
+				break;
+
+			case 'hour':
+				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . ')';
+				break;
+
+			case 'minute':
+				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . ')';
+				break;
+
+			case 'second':
+				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . '), SECOND(' . $ts . ')';
+				break;
+
+			default:
+				return FALSE;
+		}
 	}
 
+	/**
+	 * Called by interpreter before counting result rows
+	 *
+	 * @param  string $sqlRowCount   initial SQL query
+	 * @param  string $sqlParameters initial SQL parameters
+	 * @return boolean               optimization result
+	 */
 	public function optimizeRowCountSQL(&$sqlRowCount, &$sqlParameters) {
 		// not implemented
 		return false;
 	}
 
+	/**
+	 * Called by interpreter before retrieving result rows
+	 *
+	 * @param  string $sql  		 initial SQL query
+	 * @param  string $sqlParameters initial SQL parameters
+	 * @return boolean               optimization result
+	 */
 	public function optimizeDataSQL(&$sql, &$sqlParameters) {
 		// not implemented
 		return false;

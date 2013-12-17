@@ -32,11 +32,13 @@ use Doctrine\DBAL;
 /**
  * MySQLAggregateOptimizer
  *
- * Provides additional DB-specific optimizations by utilizing a secondary
- * 'materialized view' table.
+ * Provides additional DB-specific optimizations by utilizing
+ * an additional 'materialized view' table.
  *
  * Speedup is achieved by combining main data and materialized view 'aggregate' tables
- * into single. Tables are 'stitched' together by evaluating suitable timestamps:
+ * into single query.
+ *
+ * Tables are 'stitched' together by evaluating suitable timestamps:
  *
  *     table:   --data-- -----aggregate----- -data-
  * timestamp:   from ... aggFrom ..... aggTo ... to
@@ -51,8 +53,6 @@ class MySQLAggregateOptimizer extends MySQLOptimizer {
 	protected $sqlTimeFilter;
 	protected $sqlTimeFilterPre;
 	protected $sqlTimeFilterPost;
-
-	const AGGREGATION_LEVEL = 'day';
 
 	/**
 	 * Must only be instantiated if config['aggregation'] = true
@@ -93,7 +93,6 @@ class MySQLAggregateOptimizer extends MySQLOptimizer {
 							   'WHERE channel_id = ? AND type = ?' . $this->sqlTimeFilter;
 				$sqlRowCount = 'SELECT COUNT(1) ' .
 							   'FROM (' . $sqlRowCount . ') AS agg';
-// echo(Util\Debug::getParametrizedQuery($sqlRowCount, $sqlParameters)."\n");
 			}
 			else {
 				// optimize non-grouped count statement
