@@ -55,7 +55,7 @@ class AggregationTest extends DataContext
 		$agg = new Util\Aggregation(self::$conn);
 		$agg->clear(self::$uuid);
 
-		$rows = self::$conn->fetchColumn('SELECT COUNT(1) FROM aggregate INNER JOIN entities ON aggregate.channel_id = entities.id WHERE entities.id = ?', array(self::$uuid));
+		$rows = $this->countAggregationRows();
 		$this->assertEquals(0, $rows, 'aggregate table cannot be cleared');
 	}
 
