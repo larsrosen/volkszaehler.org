@@ -59,8 +59,8 @@ class Aggregation {
 		);
 	}
 
-	public function __construct($conn) {
-		$this->conn = $conn; // DBAL connection
+	public function __construct(DBAL\Connection $conn) {
+		$this->conn = $conn;
 	}
 
 	/**
