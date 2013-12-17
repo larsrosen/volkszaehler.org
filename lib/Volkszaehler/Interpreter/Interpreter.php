@@ -25,6 +25,7 @@ namespace Volkszaehler\Interpreter;
 
 use Volkszaehler\Util;
 use Volkszaehler\Model;
+use Volkszaehler\Interpreter\SQL;
 use Doctrine\ORM;
 
 /**
@@ -46,13 +47,14 @@ abstract class Interpreter {
 	protected $groupBy;	// user from/to from DataIterator for exact calculations!
 	protected $client;  // client type for specific optimizations
 
-
 	protected $rowCount;	// number of rows in the database
 	protected $tupleCount;	// number of requested tuples
 	protected $rows;	// DataIterator instance for aggregating rows
 
 	protected $min = NULL;
 	protected $max = NULL;
+
+	protected $optimizer;
 
 	const AGGREGATION_LEVEL = 'day';
 
@@ -83,6 +85,8 @@ abstract class Interpreter {
 		if (isset($this->from) && isset($this->to) && $this->from > $this->to) {
 			throw new \Exception('from is larger than to parameter');
 		}
+
+		$this->optimizer = SQL\SQLOptimizer::factory($this, $this->conn);
 	}
 
 	/**
@@ -127,6 +131,11 @@ abstract class Interpreter {
 			}
 		}
 
+		// set parameters
+		if ($this->optimizer) {
+			$this->optimizer->setParameters($this->from, $this->to, $this->tupleCount, $this->groupBy);
+		}
+
 		// common conditions for following SQL queries
 		$sqlParameters = array($this->channel->getId());
 		$sqlTimeFilter = self::buildDateTimeFilterSQL($this->from, $this->to, $sqlParameters);
@@ -148,251 +157,26 @@ abstract class Interpreter {
 			$sql = 'SELECT timestamp, value, 1 AS count FROM data WHERE channel_id=?' . $sqlTimeFilter . ' ORDER BY timestamp ASC';
 		}
 
-		// get rowCount - force non-optimized version?
-		if ($this->client == 'slow') {
-			$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParameters, 0);
+		// optimize sql
+		$sqlParametersRowCount = $sqlParameters;
+		if ($this->optimizer && $this->client !== 'slow') {
+			$this->optimizer->optimizeRowCountSQL($sqlRowCount, $sqlParametersRowCount);
 		}
-		else {
-			// optimized sql
-			$this->optimizeSQL($sqlRowCount, $sql, $sqlParameters);
-		}
+
+		$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParametersRowCount, 0);
+
 		if ($this->rowCount <= 0)
 			return new \EmptyIterator();
+
+		// optimize sql
+		if ($this->optimizer && $this->client !== 'slow') {
+			$this->optimizer->optimizeDataSQL($sql, $sqlParameters);
+		}
 
 		// run query
 		$stmt = $this->conn->executeQuery($sql, $sqlParameters);
 
 		return new DataIterator($stmt, $this->rowCount, $this->tupleCount);
-	}
-
-	/**
-	 * Count result rows and optimize query
-	 *
-	 * Grouped queries:
-	 * 		use aggregation table
-	 *
-	 * Normal queries:
-	 * 		Reduces number of tuples returned from DB if possible,
-	 *   	basically does what DataIterator->next does when bundling
-	 *   	tuples into packages
-	 *
-	 * @param  string $sqlRowCount   row count sql
-	 * @param  string $sql           data selection sql
-	 * @param  array  $sqlParameters sql parameters
-	 * @return mixed                 sql statement
-	 * @author Andreas Goetz <cpuidle@gmx.de>
-	 */
-	protected function optimizeSQL($sqlRowCount, &$sql, &$sqlParameters) {
-		// backup parameters for count statement
-		$sqlParametersRowCount = $sqlParameters;
-
-		// data aggregation works by utilizing a secondary 'materialized view' table
-		// main data and materialized view aggregate tables are being combined into single query
-		// by evaluating suitable timestamps for stitching the two together:
-		//
-		//     table:   --data-- -----aggregate----- -data-
-		// timestamp:   from ... aggFrom ..... aggTo ... to
-		$useAggregation = Util\Configuration::read('aggregation');
-		$aggregator = new Util\Aggregation($this->conn);
-
-		// Optimize queries by applying aggregation table
-		if ($useAggregation) {
-			// run optimizer to get best (highest) applicable aggregation level
-			$aggregationLevel = $aggregator->getOptimalAggregationLevel($this->channel->getUuid(), $this->groupBy);
-			if ($aggregationLevel) {
-				$aggregationLevel = $aggregationLevel[0]['level'];
-
-				// numeric value of desired aggregation level
-				$type = Util\Aggregation::getAggregationLevelTypeValue($aggregationLevel);
-
-				// valid boundaries?
-				$validBoundaries = $this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo);
-			}
-			else {
-				$validBoundaries = false;
-			}
-
-			if ($this->groupBy && $validBoundaries) {
-				// optimize grouped statement
-				$sqlParameters = $this->buildAggregationTableParameters($type, $aggFrom, $aggTo,
-					$sqlTimeFilterPre, $sqlTimeFilterPost, $sqlTimeFilter);
-				$sqlGroupFields = self::buildGroupBySQL($this->groupBy);
-
-				// build data query
-				// NOTE: the UNION'ed tables are not ordered as MySQL doesn't guarantee result ordering
-
-				// 	   table:   --DATA-- -----aggregate----- -DATA-
-				$sql = 'SELECT timestamp, value, 1 AS count ' .
-					   'FROM data ' .
-					   'WHERE channel_id = ? ' .
-					   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-
-				// 	   table:   --data-- -----AGGREGATE----- -data-
-				$sql.= 'UNION SELECT timestamp, value, count ' .
-					   'FROM aggregate ' .
-					   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-
-				// add common aggregation and sorting on UNIONed table
-				$sql = 'SELECT MAX(timestamp) AS timestamp, ' .
-						static::groupExprSQL('value') . ' AS value, SUM(count) AS count ' .
-					   'FROM (' . $sql . ') AS agg ' .
-					   'GROUP BY ' . $sqlGroupFields . ' ORDER BY timestamp ASC';
-
-				// build row count query
-				$sqlParametersRowCount = $sqlParameters;
-				$sqlRowCount = 'SELECT DISTINCT ' . $sqlGroupFields . ' ' .
-							   'FROM data WHERE channel_id = ? ' .
-							   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-				$sqlRowCount.= 'UNION SELECT DISTINCT ' . $sqlGroupFields . ' ' .
-							   'FROM aggregate ' .
-							   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-				$sqlRowCount = 'SELECT COUNT(1) ' .
-							   'FROM (' . $sqlRowCount . ') AS agg';
-			}
-			elseif (!$this->groupBy && $validBoundaries) {
-				// optimize count statement
-				$sqlParametersRowCount = $this->buildAggregationTableParameters($type, $aggFrom, $aggTo,
-					$sqlTimeFilterPre, $sqlTimeFilterPost, $sqlTimeFilter);
-
-				$sqlRowCount = 'SELECT COUNT(1) AS count ' .
-							   'FROM data WHERE channel_id = ? ' .
-							   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-				$sqlRowCount.= 'UNION SELECT SUM(count) AS count ' .
-							   'FROM aggregate ' .
-							   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-				$sqlRowCount = 'SELECT SUM(count) ' .
-							   'FROM (' . $sqlRowCount . ') AS agg';
-			}
-		}
-
-		// count rows- basis for further optimization
-		$this->rowCount = (int) $this->conn->fetchColumn($sqlRowCount, $sqlParametersRowCount, 0);
-
-		// potential to reduce result set - can't do this for already grouped SQL
-		if (!$this->groupBy && $this->tupleCount && ($this->rowCount > $this->tupleCount)) {
-			$packageSize = floor($this->rowCount / $this->tupleCount);
-
-			// optimize package statement special case: package into 1 tuple
-			if ($useAggregation && $validBoundaries &&
-				$packageSize > 1 && $this->tupleCount == 1 &&
-				// shift aggregation boundary start by 1 unit to make sure first tuple is not aggregated
-				$this->getAggregationBoundary($aggregationLevel, $aggFrom, $aggTo, 1)) {
-
-				$sqlParameters = $this->buildAggregationTableParameters($type, $aggFrom, $aggTo,
-					$sqlTimeFilterPre, $sqlTimeFilterPost, $sqlTimeFilter);
-
-				// 	   table:   --DATA-- -----aggregate----- -DATA-
-				$sql = 'SELECT timestamp, value, 1 AS count, @row:=@row+1 AS row ' .
-					   'FROM data ' .
-					   'WHERE channel_id = ? ' .
-					   'AND (' . $sqlTimeFilterPre . ' OR' . $sqlTimeFilterPost . ') ';
-
-				// 	   table:   --data-- -----AGGREGATE----- -data-
-				$sql.= 'UNION SELECT timestamp, value, count, @row:=@row+1 AS row ' .
-					   'FROM aggregate ' .
-					   'WHERE channel_id = ? AND type = ?' . $sqlTimeFilter;
-
-				// add common aggregation and sorting on UNIONed table
-				$sql = 'SELECT MAX(timestamp) AS timestamp, ' .
-						static::groupExprSQL('value') . ' AS value, SUM(count) AS count ' .
-					   'FROM (SELECT @row:=0) AS init, (' . $sql . ') AS agg ' .
-					   'GROUP BY row > 1 ORDER BY timestamp ASC';
-			}
-			else if ($packageSize > 1) { // worth doing -> go
-				// optimize package statement general case: tuple packaging
-				$foo = array();
-				$sqlTimeFilter = self::buildDateTimeFilterSQL($this->from, $this->to, $foo);
-
-				$this->rowCount = floor($this->rowCount / $packageSize);
-				// setting @row to packageSize-2 will make the first package contain 1 tuple only
-				// this pushes as much 'real' data as possible into the first used package and ensures
-				// we get 2 rows even if tuples=1 requested (first row is discarded by DataIterator)
-				$sql = 'SELECT MAX(agg.timestamp) AS timestamp, ' .
-						static::groupExprSQL('agg.value') . ' AS value, ' .
-					   'COUNT(agg.value) AS count ' .
-					   'FROM (SELECT @row:=' . ($packageSize-2) . ') AS init, (' .
-							 'SELECT timestamp, value, @row:=@row+1 AS row ' .
-							 'FROM data WHERE channel_id=?' . $sqlTimeFilter . ' ' .
-					   		 'ORDER BY timestamp' .
-					   ') AS agg ' .
-					   'GROUP BY row DIV ' . $packageSize . ' ' .
-					   'ORDER BY timestamp ASC';
-			}
-		}
-
-		return $this->rowCount;
-	}
-
-	/**
-	 * Build SQL parameters for aggregation table access given timestamp boundaries
-	 * @author Andreas Goetz <cpuidle@gmx.de>
-	 */
-	private function buildAggregationTableParameters($type, $aggFrom, $aggTo, &$sqlTimeFilterPre, &$sqlTimeFilterPost, &$sqlTimeFilter) {
-		$sqlParameters = array($this->channel->getId());
-
-		// timestamp:   from ... aggFrom ..... aggTo ... to
-		//     table:   --DATA-- -----aggregate----- -data-
-		$sqlTimeFilterPre = self::buildDateTimeFilterSQL($this->from, $aggFrom, $sqlParameters, true, '');
-		// 	   table:   --data-- -----aggregate----- -DATA-
-		$sqlTimeFilterPost = self::buildDateTimeFilterSQL($aggTo, $this->to, $sqlParameters, false, '');
-
-		array_push($sqlParameters, $this->channel->getId(), $type);
-		// 	   table:   --data-- -----AGGREGATE----- -data-
-		$sqlTimeFilter = self::buildDateTimeFilterSQL($aggFrom, $aggTo, $sqlParameters, true);
-
-		return $sqlParameters;
-	}
-
-	/**
-	 * Calculate valid timestamp boundaries for aggregation table usage
-	 *
-	 *     table:   --data-- -----aggregate----- -data-
-	 * timestamp:   from ... aggFrom ..... aggTo ... to
-	 *
-	 * @param string $type aggregation level (e.g. 'day')
-	 * @return boolean true: aggregate table contains data, aggFrom/aggTo contains valid range
-	 * @author Andreas Goetz <cpuidle@gmx.de>
-	 */
-	private function getAggregationBoundary($level, &$aggFrom, &$aggTo, $aggFromDelta = null) {
-		$type = Util\Aggregation::getAggregationLevelTypeValue($level);
-		$dateFormat = Util\Aggregation::getAggregationDateFormat($level); // day = "%Y-%m-%d"
-
-		// aggFrom becomes beginning of first period with aggregate data
-		$sqlParameters = array($this->channel->getId(), $type, $this->from);
-		if (isset($aggFromDelta)) {
-			// shift 'left' border of aggregate table use by $aggFromDelta units
-			$sql = 'SELECT UNIX_TIMESTAMP(' .
-				   'DATE_ADD(' .
-					   'FROM_UNIXTIME(MIN(timestamp) / 1000, ' . $dateFormat . '), ' .
-					   'INTERVAL ' . $aggFromDelta . ' ' . $level .
-				   ')) * 1000 ' .
-			 	   'FROM aggregate WHERE channel_id=? AND type=? AND timestamp>=?';
-		}
-		else {
-			// find 'left' border of aggregate table after $from
-			$sql = 'SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(MIN(timestamp) / 1000, ' . $dateFormat . ')) * 1000 ' .
-			 	   'FROM aggregate WHERE channel_id=? AND type=? AND timestamp>=?';
-		}
-		$aggFrom = $this->conn->fetchColumn($sql, $sqlParameters, 0);
-
-		// aggregate table contains relevant data?
-		if (isset($aggFrom)) {
-			// aggTo becomes beginning of first period without aggregate data
-			$sqlParameters = array($this->channel->getId(), $type);
-			$sql = 'SELECT UNIX_TIMESTAMP(' .
-				   'DATE_ADD(' .
-						'FROM_UNIXTIME(MAX(timestamp) / 1000, ' . $dateFormat . '), ' .
-						'INTERVAL 1 ' . $level .
-				   ')) * 1000 ' .
-				   'FROM aggregate WHERE channel_id=? AND type=?';
-			if (isset($this->to)) {
-				$sqlParameters[] = $this->to;
-				$sql .= ' AND timestamp<?';
-			}
-			$aggTo = $this->conn->fetchColumn($sql, $sqlParameters, 0);
-		}
-
-		return (isset($aggFrom) && isset($aggTo));
 	}
 
 	/**
@@ -455,20 +239,18 @@ abstract class Interpreter {
 	 *
 	 * @param integer $from timestamp in ms since 1970
 	 * @param integer $to timestamp in ms since 1970
-	 * @param boolean $sequential use < operator instead of <= for time comparison at end of period
-	 * @param string  $op initial concatenation operator
 	 * @return string the sql part
 	 */
-	protected static function buildDateTimeFilterSQL($from = NULL, $to = NULL, &$parameters, $sequential = false, $op = ' AND') {
+	public static function buildDateTimeFilterSQL($from = NULL, $to = NULL, &$parameters) {
 		$sql = '';
 
 		if (isset($from)) {
-			$sql .= $op . ' timestamp >= ?';
+			$sql .= ' AND timestamp >= ?';
 			$parameters[] = $from;
 		}
 
 		if (isset($to)) {
-			$sql .= (($sql) ? ' AND' : $op) . ' timestamp ' . (($sequential) ? '<' : '<=') . ' ?';
+			$sql .= ' AND timestamp <= ?';
 			$parameters[] = $to;
 		}
 
