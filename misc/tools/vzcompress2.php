@@ -52,9 +52,6 @@
  * along with volkszaehler.org. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * Volkszaehler environment
- */
 use Volkszaehler\Util;
 use Volkszaehler\Definition;
 
