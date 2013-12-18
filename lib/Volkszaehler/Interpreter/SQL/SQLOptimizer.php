@@ -49,7 +49,7 @@ class SQLOptimizer {
 	 * @param  DBALConnection         $conn
 	 * @return SQL\SQLOptimizer 	  instantiated class or false
 	 */
-	public static function factory(Interpreter\Interpreter $interpreter, DBAL\Connection $conn) {
+	public static function factory() {
 		switch (Util\Configuration::read('db')['driver']) {
 			case 'pdo_mysql':
 				if (Util\Configuration::read('aggregation')) {
@@ -59,11 +59,13 @@ class SQLOptimizer {
 					$class = __NAMESPACE__ . '\MySQLOptimizer';
 				}
 				break;
+			case 'pdo_sqlite':
+				$class = __NAMESPACE__ . '\SQLiteOptimizer';
+				break;
 			default:
-				$class = false; // 'Volkszaehler\Interpreter\GenericSQLOptimizer';
+				$class = __CLASS__;
 		}
-
-		return ($class) ? new $class($interpreter, $conn) : false;
+		return $class;
 	}
 
 	public function __construct(Interpreter\Interpreter $interpreter, DBAL\Connection $conn) {
@@ -101,47 +103,16 @@ class SQLOptimizer {
 	}
 
 	/**
-	 * DB-specific data grouping by date functions
-	 * Default implementation
+	 * DB-specific data grouping by date functions.
+	 * Static call is degelated to implementing classes.
+	 * Called by Interpreter->buildGroupBySQL
 	 *
 	 * @param string $groupBy
 	 * @return string the sql part
 	 */
 	public static function buildGroupBySQL($groupBy) {
-		$ts = 'FROM_UNIXTIME(timestamp/1000)'; // just for saving space
-
-		switch ($groupBy) {
-			case 'year':
-				return 'YEAR(' . $ts . ')';
-				break;
-
-			case 'month':
-				return 'YEAR(' . $ts . '), MONTH(' . $ts . ')';
-				break;
-
-			case 'week':
-				return 'YEAR(' . $ts . '), WEEKOFYEAR(' . $ts . ')';
-				break;
-
-			case 'day':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . ')';
-				break;
-
-			case 'hour':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . ')';
-				break;
-
-			case 'minute':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . ')';
-				break;
-
-			case 'second':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . '), SECOND(' . $ts . ')';
-				break;
-
-			default:
-				return FALSE;
-		}
+		$class = self::factory();
+		return $class::buildGroupBySQL($groupBy);
 	}
 
 	/**

@@ -87,7 +87,8 @@ abstract class Interpreter {
 		}
 
 		// add DB-specific SQL optimizations
-		$this->optimizer = SQL\SQLOptimizer::factory($this, $this->conn);
+		$class = SQL\SQLOptimizer::factory();
+		$this->optimizer = new $class($this, $this->conn);
 	}
 
 	/**
@@ -202,43 +203,10 @@ abstract class Interpreter {
 	 *
 	 * @param string $groupBy
 	 * @return string the sql part
-	 * @todo make compatible with: MSSql (Transact-SQL), Sybase, Firebird/Interbase, IBM, Informix, MySQL, Oracle, DB2, PostgreSQL, SQLite
 	 */
 	public static function buildGroupBySQL($groupBy) {
-		$ts = 'FROM_UNIXTIME(timestamp/1000)';	// just for saving space
-
-		switch ($groupBy) {
-			case 'year':
-				return 'YEAR(' . $ts . ')';
-				break;
-
-			case 'month':
-				return 'YEAR(' . $ts . '), MONTH(' . $ts . ')';
-				break;
-
-			case 'week':
-				return 'YEAR(' . $ts . '), WEEKOFYEAR(' . $ts . ')';
-				break;
-
-			case 'day':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . ')';
-				break;
-
-			case 'hour':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . ')';
-				break;
-
-			case 'minute':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . ')';
-				break;
-
-			case 'second':
-				return 'YEAR(' . $ts . '), DAYOFYEAR(' . $ts . '), HOUR(' . $ts . '), MINUTE(' . $ts . '), SECOND(' . $ts . ')';
-				break;
-
-			default:
-				return FALSE;
-		}
+		// call DB-specific version
+		return SQL\SQLOptimizer::buildGroupBySQL($groupBy);
 	}
 
 	/**

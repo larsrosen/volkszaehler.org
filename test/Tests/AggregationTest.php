@@ -32,7 +32,7 @@ class AggregationTest extends DataContext
 	 * Cleanup aggregation
 	 */
 	static function tearDownAfterClass() {
-		if (self::$conn && self::$uuid) {
+		if (self::$conn && self::$uuid && Util\Configuration::read('aggregation')) {
 			$agg = new Util\Aggregation(self::$conn);
 			$agg->clear(self::$uuid);
 		}
@@ -47,10 +47,16 @@ class AggregationTest extends DataContext
 		);
 	}
 
+	/**
+	 * All tests depend on aggreation being enabled
+	 */
 	function testConfiguration() {
-		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set `config[aggregation] = true`');
+		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set $config[\'aggregation\'] = true');
 	}
 
+	/**
+	 * @depends testConfiguration
+	 */
 	function testClearAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
 		$agg->clear(self::$uuid);
@@ -192,6 +198,9 @@ class AggregationTest extends DataContext
 		$this->assertEquals(3, $this->json->data->rows, 'Possibly wrong aggregation level chosen by optimizer');
 	}
 
+	/**
+	 * @depends testConfiguration
+	 */
 	function testFullAggregation() {
 		// currently not implemented for performance reasons
 		echo('not implemented');

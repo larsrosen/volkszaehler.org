@@ -190,7 +190,7 @@ class Aggregation {
 		$type = self::getAggregationLevelTypeValue($level);
 
 		// get interpreter's aggregation function
-		$aggregationFunction = call_user_func(array($interpreter, 'groupExprSQL'), 'value');
+		$aggregationFunction = $interpreter::groupExprSQL('value');
 
 		$sqlParameters = array($type);
 		$sql = 'REPLACE INTO aggregate (channel_id, type, timestamp, value, count) ' .
