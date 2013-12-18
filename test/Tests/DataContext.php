@@ -72,7 +72,7 @@ abstract class DataContext extends Middleware
 	}
 
 	protected function getTuplesRaw($from = null, $to = null, $group = null, $tuples = null) {
-		$url = self::$context . '/' . static::$uuid . '.json?client=raw&';
+		$url = self::$context . '/' . static::$uuid . '.json?options=exact&';
 		return $this->getTuplesByUrl($url, $from, $to, $group, $tuples);
 	}
 

@@ -40,21 +40,23 @@ abstract class Interpreter {
 	/**
 	 * @var Database connection
 	 */
-	protected $conn;	// PDO connection handle
+	protected $conn;		// PDO connection handle
 
-	protected $from;	// request parameters
-	protected $to;		// can be NULL!
-	protected $groupBy;	// user from/to from DataIterator for exact calculations!
-	protected $client;  // client type for specific optimizations
+	protected $optimizer;	// DB-specifig SQL implementation and optmization
+
+	protected $from;		// request parameters
+	protected $to;			// can be NULL!
+	protected $groupBy;		// user from/to from DataIterator for exact calculations!
+	protected $options;  	// additional non-standard options
 
 	protected $rowCount;	// number of rows in the database
 	protected $tupleCount;	// number of requested tuples
-	protected $rows;	// DataIterator instance for aggregating rows
+	protected $rows;		// DataIterator instance for aggregating rows
 
 	protected $min = NULL;
 	protected $max = NULL;
 
-	protected $optimizer;
+	const OPTIONS_SEPARATOR = ',';
 
 	/**
 	 * Constructor
@@ -64,11 +66,11 @@ abstract class Interpreter {
 	 * @param integer $from timestamp in ms since 1970
 	 * @param integer $to timestamp in ms since 1970
 	 */
-	public function __construct(Model\Channel $channel, ORM\EntityManager $em, $from, $to, $tupleCount = null, $groupBy = null, $client = 'unknown') {
+	public function __construct(Model\Channel $channel, ORM\EntityManager $em, $from, $to, $tupleCount = null, $groupBy = null, $options = null) {
 		$this->channel = $channel;
 		$this->groupBy = $groupBy;
 		$this->tupleCount = $tupleCount;
-		$this->client = $client;
+		$this->options = explode(self::OPTIONS_SEPARATOR, $options);
 		$this->conn = $em->getConnection(); // get dbal connection from EntityManager
 
 		// parse interval
@@ -86,6 +88,14 @@ abstract class Interpreter {
 
 		// add DB-specific SQL optimizations
 		$this->optimizer = SQL\SQLOptimizer::factory($this, $this->conn);
+	}
+
+	/**
+	 * Check if option is specified
+	 * @param  string  $str option name
+	 */
+	private function hasOption($str) {
+		return in_array($str, $this->options);
 	}
 
 	/**
@@ -113,7 +123,7 @@ abstract class Interpreter {
 	 * @return Volkszaehler\DataIterator
 	 */
 	protected function getData() {
-		if ($this->client !== 'raw') {
+		if (!$this->hasOption('exact')) {
 			// get timestamps of preceding and following data points as a graciousness
 			// for the frontend to be able to draw graphs to the left and right borders
 			if (isset($this->from)) {
@@ -131,9 +141,7 @@ abstract class Interpreter {
 		}
 
 		// set parameters; repeat if modified after setting
-		if ($this->optimizer) {
-			$this->optimizer->setParameters($this->from, $this->to, $this->tupleCount, $this->groupBy);
-		}
+		$this->optimizer->setParameters($this->from, $this->to, $this->tupleCount, $this->groupBy);
 
 		// common conditions for following SQL queries
 		$sqlParameters = array($this->channel->getId());
@@ -158,7 +166,7 @@ abstract class Interpreter {
 
 		// optimize sql
 		$sqlParametersRowCount = $sqlParameters;
-		if ($this->optimizer && $this->client !== 'slow') {
+		if (!$this->hasOption('slow')) {
 			$this->optimizer->optimizeRowCountSQL($sqlRowCount, $sqlParametersRowCount);
 		}
 
@@ -168,7 +176,7 @@ abstract class Interpreter {
 			return new \EmptyIterator();
 
 		// optimize sql
-		if ($this->optimizer && $this->client !== 'slow') {
+		if (!$this->hasOption('slow')) {
 			$this->optimizer->optimizeDataSQL($sql, $sqlParameters);
 		}
 

@@ -45,12 +45,12 @@ class DataController extends Controller {
 		$tuples = $this->view->request->getParameter('tuples');
 		$groupBy = $this->view->request->getParameter('group');
 		$tsFmt = $this->view->request->getParameter('tsfmt');
-		$client = strtolower($this->view->request->getParameter('client'));
+		$options = $this->view->request->getParameter('options');
 
 		// single entity
 		if ($entity) {
 			$class = $entity->getDefinition()->getInterpreter();
-			return new $class($entity, $this->em, $from, $to, $tuples, $groupBy, $client);
+			return new $class($entity, $this->em, $from, $to, $tuples, $groupBy, $options);
 		}
 
 		// multiple UUIDs
