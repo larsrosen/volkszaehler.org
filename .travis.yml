@@ -22,7 +22,7 @@ env:
 
 notifications:
 # mail: "volkszaehler-dev@lists.volkszaehler.org"
-# irc: "chat.freenode.net#volkszaehler.org"
+# irc: "chat.freenode.net/volkszaehler.org"
 
 before_install:
     - composer self-update
@@ -65,10 +65,12 @@ before_script:
     - sh -c "if [ '$DB' = 'sqlite' ]; then cat misc/sql/schema.sql | sqlite3 sqlite.db3; fi;"
     - sh -c "if [ '$DB' = 'sqlite' ]; then sqlite3 sqlite.db3 .dump; fi;"
 
+script: 
+    - cd test
+    - phpunit --exclude-group aggregation --coverage-text
+
     # enable aggregation
     - sed -i "s/\?>/\$config['aggregation']\ =\ true;\n?>/" etc/volkszaehler.conf.php
     - php misc/tools/aggregate.php -m create
 
-script: 
-    - cd test
-    - phpunit --configuration phpunit.xml --coverage-text
+    - sh -c "if [ '$DB' = 'mysql' ]; then phpunit --coverage-text; fi;"
