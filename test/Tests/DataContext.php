@@ -11,7 +11,7 @@ namespace Tests;
 abstract class DataContext extends Middleware
 {
 	static $uuid;
-	static $precision = 0.001;
+	static $precision = 0.001;	// mimic View\PRECISION
 
 	/**
 	 * Initialize context
