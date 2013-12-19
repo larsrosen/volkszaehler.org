@@ -1,12 +1,11 @@
 {
-    "name": "volkszaehler/volkszaehler",
+    "name": "andig/volkszaehler",
     "type": "project",
     "homepage": "http://www.volkszaehler.org/",
     "license": "GPL-3.0",
     "support": {
         "wiki": "http://wiki.volkszaehler.org/",
-        "email": "volkszaehler-dev@lists.volkszaehler.org",
-        "irc": "chat.freenode.net#volkszaehler.org"
+        "email": "volkszaehler@lists.volkszaehler.org"
     },
     "require": {
         "doctrine/orm": "2.4.*",
