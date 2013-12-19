@@ -42,7 +42,7 @@ abstract class Interpreter {
 	 */
 	protected $conn;		// PDO connection handle
 
-	protected $optimizer;	// DB-specifig SQL implementation and optmization
+	protected $optimizer;	// db-specific SQL implementation and optmization
 
 	protected $from;		// request parameters
 	protected $to;			// can be NULL!
@@ -86,7 +86,7 @@ abstract class Interpreter {
 			throw new \Exception('from is larger than to parameter');
 		}
 
-		// add DB-specific SQL optimizations
+		// add db-specific SQL optimizations
 		$class = SQL\SQLOptimizer::factory();
 		$this->optimizer = new $class($this, $this->conn);
 	}
@@ -205,7 +205,7 @@ abstract class Interpreter {
 	 * @return string the sql part
 	 */
 	public static function buildGroupBySQL($groupBy) {
-		// call DB-specific version
+		// call db-specific version
 		return SQL\SQLOptimizer::buildGroupBySQL($groupBy);
 	}
 
