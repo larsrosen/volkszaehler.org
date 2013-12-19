@@ -260,6 +260,7 @@ abstract class Interpreter {
 
 	public function getEntity() { return $this->channel; }
 	public function getRowCount() { return $this->rowCount; }
+	public function setRowCount($count) { $this->rowCount = $count; }
 	public function getTupleCount() { return $this->tupleCount; }
 	public function setTupleCount($count) { $this->tupleCount = $count; }
 	public function getFrom() { return ($this->rowCount > 0) ? $this->rows->getFrom() : NULL; }

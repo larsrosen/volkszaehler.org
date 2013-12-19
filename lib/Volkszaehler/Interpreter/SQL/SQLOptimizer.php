@@ -103,6 +103,22 @@ class SQLOptimizer {
 	}
 
 	/**
+	 * Proxy magic. Transparently access public interpreter properties
+	 * Keeps the code portable between Interpreter and SQLOptimizer
+	 */
+	public function __set($property, $value) {
+		if ($property == 'rowCount') {
+			return $this->interpreter->setRowCount($value);
+		}
+		elseif ($property == 'tupleCount') {
+			return $this->interpreter->setTupleCount($value);
+		}
+ 		else {
+   			throw new \Exception('Invalid property access: \'' . $property . '\'');
+   		}
+	}
+
+	/**
 	 * DB-specific data grouping by date functions.
 	 * Static call is degelated to implementing classes.
 	 * Called by Interpreter->buildGroupBySQL
