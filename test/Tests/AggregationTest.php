@@ -2,8 +2,6 @@
 /**
  * Aggregation tests
  *
- * NOTE: these tests should be DST-ready
- *
  * @package Test
  * @author Andreas Götz <cpuidle@gmx.de>
  */
@@ -13,16 +11,13 @@ namespace Tests;
 use Volkszaehler\Util;
 use Doctrine\DBAL;
 
-class AggregationTest extends DataContext
+class AggregationTest extends DataContextPerformance
 {
-	static $conn;
-
 	/**
 	 * Create DB connection and setup channel
 	 */
 	static function setupBeforeClass() {
 		parent::setupBeforeClass();
-		self::$conn = DBAL\DriverManager::getConnection(Util\Configuration::read('db'));
 
 		if (!self::$uuid)
 			self::$uuid = self::createChannel('Aggregation', 'power', 100);
@@ -39,16 +34,9 @@ class AggregationTest extends DataContext
 		parent::tearDownAfterClass();
 	}
 
-	protected function countAggregationRows($uuid = null) {
-		return self::$conn->fetchColumn(
-			'SELECT COUNT(1) FROM aggregate ' .
-			'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
-			'WHERE entities.uuid = ?', array(($uuid) ?: self::$uuid)
-		);
-	}
-
 	/**
 	 * All tests depend on aggreation being enabled
+	 * @group aggregation
 	 */
 	function testConfiguration() {
 		$this->assertTrue(Util\Configuration::read('aggregation'), 'data aggregation not enabled in config file, set $config[\'aggregation\'] = true');
@@ -56,6 +44,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testConfiguration
+	 * @group aggregation
 	 */
 	function testClearAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
@@ -67,6 +56,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testClearAggregation
+	 * @group aggregation
 	 */
 	function testDeltaAggregation() {
 		$agg = new Util\Aggregation(self::$conn);
@@ -98,6 +88,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testDeltaAggregation
+	 * @group aggregation
 	 */
 	function testDeltaAggregationSecondChannel() {
 		$agg = new Util\Aggregation(self::$conn);
@@ -120,6 +111,7 @@ class AggregationTest extends DataContext
 	 * @depends testClearAggregation
 	 * @depends testDeltaAggregation
 	 * @depends testConfiguration
+	 * @group aggregation
 	 */
 	function testGetBaseline() {
 		$agg = new Util\Aggregation(self::$conn);
@@ -149,6 +141,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testGetBaseline
+	 * @group aggregation
 	 */
 	function testAggregateRetrievalFrom() {
 		// 1 data
@@ -170,6 +163,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testGetBaseline
+	 * @group aggregation
 	 */
 	function testAggregateRetrievalTo() {
 		// 1 data + 1 agg + 1 agg + 1 data
@@ -191,6 +185,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testGetBaseline
+	 * @group aggregation
 	 */
 	function testAggregateOptimizer() {
 		// 3 data, cannot use daily aggregates for hourly request
@@ -200,6 +195,7 @@ class AggregationTest extends DataContext
 
 	/**
 	 * @depends testConfiguration
+	 * @group aggregation
 	 */
 	function testFullAggregation() {
 		// currently not implemented for performance reasons

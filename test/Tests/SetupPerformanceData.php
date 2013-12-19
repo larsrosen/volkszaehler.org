@@ -63,8 +63,8 @@ class SetupPerformanceData extends DataContext
 
 	protected function countAggregationRows($uuid = null) {
 		return self::$conn->fetchColumn(
-			'SELECT COUNT(aggregate.id) FROM aggregate ' .
-			'LEFT JOIN entities ON aggregate.channel_id = entities.id ' .
+			'SELECT COUNT(1) FROM aggregate ' .
+			'INNER JOIN entities ON aggregate.channel_id = entities.id ' .
 			'WHERE entities.uuid = ?', array(($uuid) ?: self::$uuid)
 		);
 	}
@@ -96,6 +96,9 @@ class SetupPerformanceData extends DataContext
 		echo($this->formatVal($time) . " s ");
 	}
 
+	/**
+	 * @group slow
+	 */
 	function testPrepareData() {
 		$this->msg('TestSize', self::$testSize);
 		$channel_id = self::getChannelByUUID(self::$uuid)->getId();
@@ -119,40 +122,6 @@ class SetupPerformanceData extends DataContext
 
 		$this->msg($time, "AddTime");
 	}
-
-	function testAggregation() {
-		$channel_id = self::getChannelByUUID(self::$uuid)->getId();
-
-		$agg = new Util\Aggregation(self::$conn);
-
-		$time = microtime(true);
-		$agg->aggregate('full', 'day', null, $channel_id);
-		$time = microtime(true) - $time;
-		$this->timer($time, "AggTime");
-
-		$rows = $this->countAggregationRows();
-		$this->assertGreaterThan(0, $rows);
-		echo($this->msg("AggRatio", "1:" . round(self::$testSize / $rows)));
-	}
-
-	// function testFixId() {
-	// 	$channel_id = self::getChannelByUUID(self::$uuid)->getId();
-	// 	$target_id = 9;
-
-	// 	self::$em->getConnection()->beginTransaction();
-
-	// 	self::$conn->executeQuery('UPDATE data SET channel_id=? WHERE channel_id=?', array($target_id, $channel_id));
-	// 	self::$conn->executeQuery('UPDATE entities SET id=? WHERE id=?', array($target_id, $channel_id));
-	// 	self::$conn->executeQuery('UPDATE properties SET entity_id=? WHERE entity_id=?', array($target_id, $channel_id));
-	// 	self::$conn->executeQuery('UPDATE aggregate SET channel_id=? WHERE channel_id=?', array($target_id, $channel_id));
-/*
-		UPDATE data SET channel_id=? WHERE channel_id=?
-		UPDATE entities SET id=? WHERE id=?
-		UPDATE properties SET entity_id=? WHERE entity_id=?
-		UPDATE aggregate SET channel_id=? WHERE channel_id=?
-*/
-	// 	self::$em->getConnection()->commit();
-	// }
 }
 
 ?>
