@@ -25,9 +25,9 @@
 namespace Volkszaehler\Interpreter\SQL;
 
 /**
- * SQLiteOptimizer provides basic DB-specific optimizations
+ * PostgreSQLOptimizer provides basic DB-specific optimizations
  */
-class SQLiteOptimizer extends SQLOptimizer {
+class PostgreSQLOptimizer extends SQLOptimizer {
 
 	/**
 	 * DB-specific data grouping by date functions
@@ -36,37 +36,17 @@ class SQLiteOptimizer extends SQLOptimizer {
 	 * @return string the sql part
 	 */
 	public static function buildGroupBySQL($groupBy) {
-		$ts = ', timestamp/1000, "unixepoch"'; // just for saving space
+		$ts = "TIMESTAMP 'epoch' + timestamp * INTERVAL '1 millisecond'"; // just for saving space
 
 		switch ($groupBy) {
 			case 'year':
-				return 'STRFTIME("%Y"' . $ts . ')';
-				break;
-
 			case 'month':
-				return 'STRFTIME("%Y-%m"' . $ts . ')';
-				break;
-
 			case 'week':
-				return 'STRFTIME("%Y %W"' . $ts . ')';
-				break;
-
 			case 'day':
-				return 'STRFTIME("%Y-%m-%d"' . $ts . ')';
-				break;
-
 			case 'hour':
-				return 'STRFTIME("%Y-%m-%d %H"' . $ts . ')';
-				break;
-
 			case 'minute':
-				return 'STRFTIME("%Y-%m-%d %H:%M"' . $ts . ')';
-				break;
-
 			case 'second':
-				return 'STRFTIME("%Y-%m-%d %H:%M:%S"' . $ts . ')';
-				break;
-
+				return "DATE_TRUNC('" . $groupBy . "', " . $ts . ")";
 			default:
 				return FALSE;
 		}

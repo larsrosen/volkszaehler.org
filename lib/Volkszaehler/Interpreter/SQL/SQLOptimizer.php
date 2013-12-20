@@ -63,6 +63,9 @@ class SQLOptimizer {
 			case 'pdo_sqlite':
 				$class = __NAMESPACE__ . '\SQLiteOptimizer';
 				break;
+			case 'pdo_pgsql':
+				$class = __NAMESPACE__ . '\PostgreSQLOptimizer';
+				break;
 			default:
 				$class = __CLASS__;
 		}
