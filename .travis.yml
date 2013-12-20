@@ -69,5 +69,5 @@ script:
     - phpunit --exclude-group slow --exclude-group aggregation --coverage-text
 
     # re-run with aggregation enabled
-    - sed -i "s/\?>/\$config['aggregation']\ =\ true;\n?>/" etc/volkszaehler.conf.php
+    - sed -i "s/\?>/\$config['aggregation']\ =\ true;\n?>/" ../etc/volkszaehler.conf.php
     - sh -c "if [ '$DB' = 'mysql' ]; then phpunit --exclude-group slow --coverage-text; fi;"
