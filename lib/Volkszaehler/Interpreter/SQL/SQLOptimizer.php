@@ -129,6 +129,10 @@ class SQLOptimizer {
 	 */
 	public static function buildGroupBySQL($groupBy) {
 		$class = self::factory();
+		// fall back on default implementation if nothing else declared
+		if ($class == __CLASS__) {
+			$class = __NAMESPACE__ . '\MySQLOptimizer';
+		}
 		return $class::buildGroupBySQL($groupBy);
 	}
 
